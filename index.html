@@ -36,7 +36,16 @@
     </label>
     <p id="auth-error" class="auth-error" hidden></p>
     <button id="auth-submit" class="btn primary big" type="submit">دخول</button>
+    <button id="forgot-link" class="linklike" type="button">نسيت كلمة السر؟</button>
   </form>
+  <div id="reset-wrap" hidden>
+    <p class="reset-hint">اكتب كلمة سر جديدة لحسابك:</p>
+    <label class="field">كلمة السر الجديدة
+      <input id="f-newpass" type="password" autocomplete="new-password" dir="ltr" minlength="6">
+    </label>
+    <p id="reset-error" class="auth-error" hidden></p>
+    <button id="reset-save" class="btn primary big" type="button">حفظ كلمة السر الجديدة</button>
+  </div>
 </section>
 
 <!-- التطبيق -->

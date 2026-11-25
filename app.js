@@ -4,7 +4,7 @@
 
   var CFG = window.DW_CONFIG || {};
   var OWNER_EMAIL = (CFG.ownerEmail || '').toLowerCase();
-  var sb = window.supabase.createClient(CFG.supabase.url, CFG.supabase.key);
+  var sb = window.supabase.createClient(CFG.supabase.url, CFG.supabase.key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
 
   var CATS = [
     { value: 'all',      label: 'الكل' },
@@ -82,6 +82,20 @@
     $('auth-submit').textContent = mode === 'login' ? 'دخول' : 'إنشاء الحساب';
     $('auth-error').hidden = true;
     $('f-password').setAttribute('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
+    var fl = $('forgot-link'); if (fl) fl.hidden = mode !== 'login';
+  }
+  function showResetMode() {
+    showAuth();
+    $('auth-form').hidden = true;
+    document.querySelector('.auth-tabs').hidden = true;
+    $('reset-wrap').hidden = false;
+  }
+  function exitResetMode() {
+    $('reset-wrap').hidden = true;
+    $('reset-error').hidden = true;
+    $('auth-form').hidden = false;
+    document.querySelector('.auth-tabs').hidden = false;
+    setAuthMode('login');
   }
   function authError(msg) {
     var el = $('auth-error');
@@ -91,6 +105,32 @@
   function bindAuth() {
     $('tab-login').addEventListener('click', function () { setAuthMode('login'); });
     $('tab-signup').addEventListener('click', function () { setAuthMode('signup'); });
+    $('forgot-link').addEventListener('click', function () {
+      var email = $('f-email').value.trim();
+      if (!email) { authError('اكتب بريدك الإلكتروني فوق الأول.'); return; }
+      $('auth-error').hidden = true;
+      sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname })
+        .then(function (r) {
+          if (r.error) { authError(translateAuthError(r.error.message)); return; }
+          toast('لو البريد ده مسجل عندنا، هيوصلك لينك تغيير كلمة السر. بص على بريدك (ولو مش لاقيه، بص في السبام).');
+        })
+        .catch(function () { authError('حصلت مشكلة في الاتصال. جرّب تاني.'); });
+    });
+    $('reset-save').addEventListener('click', function () {
+      var p = $('f-newpass').value;
+      var errEl = $('reset-error');
+      errEl.hidden = true;
+      if (p.length < 6) { errEl.textContent = 'كلمة السر لازم ٦ حروف على الأقل.'; errEl.hidden = false; return; }
+      $('reset-save').disabled = true;
+      sb.auth.updateUser({ password: p })
+        .then(function (r) {
+          $('reset-save').disabled = false;
+          if (r.error) { errEl.textContent = translateAuthError(r.error.message); errEl.hidden = false; return; }
+          toast('اتغيرت كلمة السر ✅');
+          exitResetMode();
+        })
+        .catch(function () { $('reset-save').disabled = false; errEl.textContent = 'حصلت مشكلة في الاتصال. جرّب تاني.'; errEl.hidden = false; });
+    });
     $('auth-form').addEventListener('submit', function (ev) {
       ev.preventDefault();
       var email = $('f-email').value.trim();
@@ -1035,6 +1075,7 @@
       onUser(r.data.session ? r.data.session.user : null);
     });
     sb.auth.onAuthStateChange(function (event, session) {
+      if (event === 'PASSWORD_RECOVERY') { showResetMode(); return; }
       onUser(session ? session.user : null);
     });
     if ('serviceWorker' in navigator) {
