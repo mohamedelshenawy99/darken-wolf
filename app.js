@@ -4,6 +4,7 @@
 
   var CFG = window.DW_CONFIG || {};
   var OWNER_EMAIL = (CFG.ownerEmail || '').toLowerCase();
+  var DW_RECOVERY = /type=recovery/i.test(location.hash);
   var sb = window.supabase.createClient(CFG.supabase.url, CFG.supabase.key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
 
   var CATS = [
@@ -24,7 +25,7 @@
     'photo-basket.jpg',
   ];
 
-  var BUILD = 'dw-v17';
+  var BUILD = 'dw-v18';
 
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
   function egp(n) { return fmt.format(n) + ' ج'; }
@@ -91,12 +92,16 @@
     $('auth-form').hidden = true;
     document.querySelector('.auth-tabs').hidden = true;
     $('reset-wrap').hidden = false;
+    $('reset-cancel').hidden = !state.user;
   }
-  function exitResetMode() {
+  function leaveResetMode() {
     $('reset-wrap').hidden = true;
     $('reset-error').hidden = true;
     $('auth-form').hidden = false;
     document.querySelector('.auth-tabs').hidden = false;
+  }
+  function exitResetMode() {
+    leaveResetMode();
     setAuthMode('login');
   }
   function authError(msg) {
@@ -118,6 +123,13 @@
         })
         .catch(function () { authError('حصلت مشكلة في الاتصال. جرّب تاني.'); });
     });
+    $('reset-cancel').addEventListener('click', function () {
+      DW_RECOVERY = false;
+      if (state.user) { leaveResetMode(); onUser(state.user); }
+      else { exitResetMode(); }
+    });
+    var cp = $('change-pass');
+    if (cp) cp.addEventListener('click', function () { showResetMode(); });
     $('reset-save').addEventListener('click', function () {
       var p = $('f-newpass').value;
       var errEl = $('reset-error');
@@ -129,7 +141,9 @@
           $('reset-save').disabled = false;
           if (r.error) { errEl.textContent = translateAuthError(r.error.message); errEl.hidden = false; return; }
           toast('اتغيرت كلمة السر ✅');
-          exitResetMode();
+          DW_RECOVERY = false;
+          if (state.user) { leaveResetMode(); onUser(state.user); }
+          else { exitResetMode(); }
         })
         .catch(function () { $('reset-save').disabled = false; errEl.textContent = 'حصلت مشكلة في الاتصال. جرّب تاني.'; errEl.hidden = false; });
     });
@@ -1075,10 +1089,17 @@
     bind();
     setAuthMode('login');
     sb.auth.getSession().then(function (r) {
-      onUser(r.data.session ? r.data.session.user : null);
+      var u = r.data.session ? r.data.session.user : null;
+      if (DW_RECOVERY) {
+        if (u) { state.user = u; showResetMode(); }
+        else { onUser(null); authError('لينك تغيير كلمة السر ده اتستخدم أو انتهى. اطلب لينك جديد من "نسيت كلمة السر؟".'); }
+        return;
+      }
+      onUser(u);
     });
     sb.auth.onAuthStateChange(function (event, session) {
-      if (event === 'PASSWORD_RECOVERY') { showResetMode(); return; }
+      if (event === 'PASSWORD_RECOVERY') { if (session) state.user = session.user; showResetMode(); return; }
+      if (DW_RECOVERY && session) { state.user = session.user; showResetMode(); return; }
       onUser(session ? session.user : null);
     });
     if ('serviceWorker' in navigator) {
