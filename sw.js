@@ -1,5 +1,5 @@
 /* دارك وولف — service worker */
-var CACHE = 'dw-v26';
+var CACHE = 'dw-v27';
 var ASSETS = [
   './', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png', 'icon-512-maskable.png',
