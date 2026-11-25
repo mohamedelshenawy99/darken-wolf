@@ -238,3 +238,5 @@ main {
 .linklike { background: none; border: 0; color: #c23c12; text-decoration: underline; cursor: pointer; font: inherit; font-size: 14px; padding: 8px; align-self: center; }
 .reset-hint { margin: 4px 0 10px; color: #555; font-size: 14px; }
 #reset-wrap { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+
+.build-tag { opacity: .55; font-size: 11px; margin-inline-start: 6px; }

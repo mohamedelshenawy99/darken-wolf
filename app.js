@@ -24,6 +24,8 @@
     'photo-basket.jpg',
   ];
 
+  var BUILD = 'dw-v17';
+
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
   function egp(n) { return fmt.format(n) + ' ج'; }
   function $(id) { return document.getElementById(id); }
@@ -205,6 +207,7 @@
     if (t.welcome) $('welcome-text').textContent = t.welcome;
     if (t.description) $('brand-sub').textContent = t.description;
     if (t.footer) $('footer-text').textContent = t.footer;
+    var bt = $('build-tag'); if (bt) bt.textContent = BUILD;
     var note = $('demo-note');
     if (t.note) { note.textContent = t.note; note.hidden = false; }
     else { note.hidden = true; }
@@ -1079,7 +1082,13 @@
       onUser(session ? session.user : null);
     });
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js').catch(function () {});
+      navigator.serviceWorker.register('sw.js').then(function (reg) { reg.update().catch(function () {}); }).catch(function () {});
+      var dwReloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (dwReloaded) return;
+        dwReloaded = true;
+        location.reload();
+      });
     }
   });
 })();
