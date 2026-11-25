@@ -28,6 +28,8 @@ main {
   background: var(--ink);
   color: #fff;
   padding: 14px 16px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 .brand-icon { width: 44px; height: 44px; border-radius: 12px; }
 .brand-name { font-size: 20px; font-weight: 700; }

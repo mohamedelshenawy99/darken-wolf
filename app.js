@@ -26,7 +26,7 @@
     'photo-upvc-handle-vega.jpg',
   ];
 
-  var BUILD = 'dw-v20';
+  var BUILD = 'dw-v21';
 
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
   function egp(n) { return fmt.format(n) + ' ج'; }
@@ -308,7 +308,7 @@
         ? '<span class="cat-thumb"><img src="' + esc(c.img) + '" alt="" loading="lazy"></span>'
         : '<span class="cat-thumb placeholder">' + esc(c.name.trim().charAt(0)) + '</span>';
       b.innerHTML = thumb + '<span class="cat-name">' + esc(c.name) + '</span>';
-      b.addEventListener('click', function () { state.cat = 'p:' + c.id; renderCatCards(); renderFilters(); renderGrid(); scrollTo(0, 0); });
+      b.addEventListener('click', function () { state.cat = 'p:' + c.id; renderCatCards(); renderFilters(); renderGrid(); scrollTo(0, 0); pushNav(); });
       box.appendChild(b);
     });
   }
@@ -316,11 +316,16 @@
   function renderFilters() {
     var nav = $('filters');
     nav.innerHTML = '';
-    var chips = [];
-    if (state.cat.indexOf('p:') === 0) {
-      var pid = state.cat.slice(2);
+    if (state.cat === 'all') return;
+    var pid = null;
+    if (state.cat.indexOf('p:') === 0) pid = state.cat.slice(2);
+    else if (state.cat.indexOf('s:') === 0) {
+      var sc = catById(state.cat.slice(2));
+      pid = sc ? sc.parent_id : null;
+    }
+    var chips = [{ value: 'all', label: '← كل الأقسام' }];
+    if (pid) {
       var pc = catById(pid);
-      chips.push({ value: 'all', label: '← كل الأقسام' });
       chips.push({ value: 'p:' + pid, label: 'كل ' + (pc ? pc.name : 'القسم') });
       subCats(pid).forEach(function (s) { chips.push({ value: 's:' + s.id, label: s.name }); });
     }
@@ -329,10 +334,45 @@
       b.type = 'button';
       b.className = 'chip' + (state.cat === c.value ? ' active' : '');
       b.textContent = c.label;
-      b.addEventListener('click', function () { state.cat = c.value; renderCatCards(); renderFilters(); renderGrid(); });
+      b.addEventListener('click', function () { state.cat = c.value; renderCatCards(); renderFilters(); renderGrid(); pushNav(); });
       nav.appendChild(b);
     });
   }
+  /* ---------- تنقل + زرار رجوع الموبايل ---------- */
+  function currentView() {
+    if (!$('orders-view').hidden) return 'orders';
+    if (!$('wallet-view').hidden) return 'wallet';
+    if (!$('admin-view').hidden) return 'admin';
+    return 'catalog';
+  }
+  function pushNav() {
+    try { history.pushState({ dw: 1, v: currentView(), c: state.cat }, ''); } catch (e) {}
+  }
+  function applyNav(s) {
+    state.cat = s.c || 'all';
+    var v = s.v || 'catalog';
+    if (v === 'admin' && !state.isOwner) v = 'catalog';
+    $('orders-view').hidden = v !== 'orders';
+    $('wallet-view').hidden = v !== 'wallet';
+    $('admin-view').hidden = v !== 'admin';
+    $('catalog-view').hidden = v !== 'catalog';
+    if (v === 'orders') renderMyOrders();
+    if (v === 'wallet') renderWallet();
+    if (v === 'admin') setAdminTab(state.adminTab || 'orders');
+    renderCatCards(); renderFilters(); renderGrid();
+    scrollTo(0, 0);
+  }
+  function goHome() {
+    state.cat = 'all';
+    applyNav({ v: 'catalog', c: 'all' });
+    pushNav();
+  }
+  window.addEventListener('popstate', function (e) {
+    if (!state.user) return;
+    var s = e.state;
+    if (!s || !s.dw) { applyNav({ v: 'catalog', c: 'all' }); return; }
+    applyNav(s);
+  });
   function renderGrid() {
     var grid = $('grid');
     grid.innerHTML = '';
@@ -524,10 +564,12 @@
     $('admin-view').hidden = false;
     setAdminTab('orders');
     window.scrollTo(0, 0);
+    pushNav();
   }
   function closeAdmin() {
     $('admin-view').hidden = true;
     $('catalog-view').hidden = false;
+    pushNav();
     loadProducts();
   }
   function setAdminTab(tab) {
@@ -804,6 +846,7 @@
       w.value = user.user_metadata.full_name;
     }
     showApp();
+    try { history.replaceState({ dw: 1, v: 'catalog', c: 'all' }, ''); } catch (e) {}
     loadTexts();
     loadProducts();
     loadCategories();
@@ -835,10 +878,12 @@
     $('orders-view').hidden = false;
     renderMyOrders();
     scrollTo(0, 0);
+    pushNav();
   }
   function closeMyOrders() {
     $('orders-view').hidden = true;
     $('catalog-view').hidden = false;
+    pushNav();
   }
   function renderMyOrders() {
     var box = $('my-orders');
@@ -896,10 +941,12 @@
     $('wallet-view').hidden = false;
     renderWallet();
     scrollTo(0, 0);
+    pushNav();
   }
   function closeWallet() {
     $('wallet-view').hidden = true;
     $('catalog-view').hidden = false;
+    pushNav();
   }
   function renderWallet() {
     $('wallet-pay-number').textContent = paymentNumber();
@@ -1089,6 +1136,8 @@
     });
     $('admin-open').addEventListener('click', openAdmin);
     $('admin-close').addEventListener('click', closeAdmin);
+    var brandEl = document.querySelector('.brand');
+    if (brandEl) brandEl.addEventListener('click', function () { if (state.user) goHome(); });
     document.querySelectorAll('.admin-tab').forEach(function (b) {
       b.addEventListener('click', function () { setAdminTab(b.getAttribute('data-tab')); });
     });
