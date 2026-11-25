@@ -227,7 +227,7 @@
     box.innerHTML = '';
     if (state.cat !== 'all') { box.hidden = true; return; }
     box.hidden = false;
-    var parents = parentCats().filter(catHasProducts);
+    var parents = parentCats();
     if (!parents.length) { box.hidden = true; return; }
     parents.forEach(function (c) {
       var b = document.createElement('button');
