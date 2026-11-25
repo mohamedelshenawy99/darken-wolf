@@ -26,7 +26,7 @@
     'photo-upvc-handle-vega.jpg',
   ];
 
-  var BUILD = 'dw-v27';
+  var BUILD = 'dw-v28';
 
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
   function egp(n) { return fmt.format(n) + ' ج'; }
@@ -375,6 +375,7 @@
     return '#/v/' + v;
   }
   function pushNav() {
+    capExitWarnAt = 0;
     var h = navHash();
     if (location.hash === h) return;
     suppressHash = h;
@@ -451,6 +452,27 @@
     var s = parseHash(h);
     if (s) applyNav(s);
   });
+  /* ---------- زرار رجوع الموبايل جوه التطبيق المثبت (Capacitor) ---------- */
+  // من غير الليسنر ده، الويفيو بتاع الأندرويد بيقفل التطبيق على طول مع أي ضغطة رجوع.
+  var capExitWarnAt = 0;
+  (function () {
+    var C = window.Capacitor;
+    if (!C || !C.Plugins || !C.Plugins.App) return;
+    C.Plugins.App.addListener('backButton', function () {
+      if (DW_RECOVERY) return;
+      if (!state.user) { C.Plugins.App.exitApp(); return; }
+      var h = location.hash;
+      if (h === '#/home' || h === '' || h === '#/') {
+        // في الرئيسية: خروج بضغطتين متتاليتين بس
+        var now = Date.now();
+        if (now - capExitWarnAt < 3000) { capExitWarnAt = 0; C.Plugins.App.exitApp(); return; }
+        capExitWarnAt = now;
+        toast('اضغط رجوع مرة تانية للخروج');
+        return;
+      }
+      history.back(); // أي صفحة تانية: رجع خطوة واحدة عن طريق الهاش
+    });
+  })();
   /* ---------- إشعارات حالة الطلب ---------- */
   function showNotif(msg) {
     var el = $('notif-bar');
