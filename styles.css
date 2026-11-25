@@ -220,3 +220,17 @@ main {
 .done-sub{margin:4px 0;font-size:14px;color:#3d5a45}
 .done .btn{display:inline-block;margin-top:10px;text-decoration:none}
 [hidden]{display:none!important}
+
+/* زرار واتساب العائم */
+.wa-float{position:fixed;bottom:18px;left:18px;z-index:60;width:52px;height:52px;border-radius:50%;background:#25D366;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.25);text-decoration:none}
+.wa-float:active{transform:scale(.95)}
+/* كروت الأقسام */
+.cat-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px;margin:0 0 12px}
+.cat-cards[hidden]{display:none}
+.cat-card{background:#fff;border:1px solid #eee;border-radius:14px;padding:10px 8px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;font:inherit}
+.cat-card:active{transform:scale(.97)}
+.cat-thumb{width:64px;height:64px;border-radius:12px;overflow:hidden;background:#f5f1ec;display:flex;align-items:center;justify-content:center}
+.cat-thumb img{width:100%;height:100%;object-fit:cover}
+.cat-thumb.placeholder{background:#2b2b2b;color:#e85d2a;font-size:26px;font-weight:800}
+.cat-name{font-size:13px;font-weight:600;text-align:center;color:#2b2b2b}
+.product-row.sub{margin-inline-start:18px;opacity:.9}

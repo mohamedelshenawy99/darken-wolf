@@ -60,7 +60,8 @@
   <p class="intro" id="welcome-text">اختار المنتجات والكميات، شوف الفاتورة والإجمالي، وابعت الطلب بضغطة واحدة.</p>
   <div id="demo-note" class="note" hidden></div>
 
-  <nav class="filters" id="filters" aria-label="الأقسام"></nav>
+  <section id="cat-cards" class="cat-cards" aria-label="الأقسام"></section>
+  <nav class="filters" id="filters" aria-label="تصفية الأقسام"></nav>
 
   <section id="grid" class="grid" aria-label="المنتجات"></section>
 
@@ -164,6 +165,7 @@
   <nav class="admin-tabs">
     <button class="admin-tab active" data-tab="orders" type="button">الطلبات</button>
     <button class="admin-tab" data-tab="wallets" type="button">المحافظ</button>
+    <button class="admin-tab" data-tab="cats" type="button">الأقسام</button>
     <button class="admin-tab" data-tab="products" type="button">المنتجات</button>
     <button class="admin-tab" data-tab="texts" type="button">النصوص</button>
   </nav>
@@ -179,6 +181,27 @@
     <div id="admin-ledger"></div>
   </section>
 
+  <section id="admin-cats" class="admin-panel" hidden>
+    <button id="cat-add" class="btn primary" type="button">+ قسم جديد</button>
+    <div id="cat-form" class="product-form" hidden>
+      <h3 id="cat-form-title">قسم جديد</h3>
+      <input id="c-id" type="hidden">
+      <label class="field">اسم القسم <input id="c-name" type="text"></label>
+      <label class="field">قسم فرعي من
+        <select id="c-parent"><option value="">— قسم رئيسي —</option></select>
+      </label>
+      <label class="field">الصورة
+        <select id="c-img"></select>
+      </label>
+      <label class="field">الترتيب <input id="c-sort" type="number" min="0" step="1" dir="ltr"></label>
+      <div class="actions">
+        <button id="c-save" class="btn primary" type="button">حفظ القسم</button>
+        <button id="c-cancel" class="btn ghost" type="button">إلغاء</button>
+      </div>
+    </div>
+    <div id="cat-list"></div>
+  </section>
+
   <section id="admin-products" class="admin-panel" hidden>
     <button id="product-add" class="btn primary" type="button">+ منتج جديد</button>
     <div id="product-form" class="product-form" hidden>
@@ -188,10 +211,7 @@
       <label class="field">السعر (ج) <input id="p-price" type="number" min="0" step="any" dir="ltr"></label>
       <label class="field">الوحدة <input id="p-unit" type="text" placeholder="قطعة / متر / كجم"></label>
       <label class="field">القسم
-        <select id="p-cat">
-          <option value="kitchen">إكسسوارات مطابخ</option>
-          <option value="aluminum">ألومنيوم وشبابيك</option>
-        </select>
+        <select id="p-cat"></select>
       </label>
       <label class="field">الصورة
         <select id="p-img"></select>
@@ -221,6 +241,9 @@
     <label class="field">رقم استلام التحويلات (فودافون كاش / إنستاباي)
       <input id="t-payment" type="tel" dir="ltr">
     </label>
+    <label class="field">رقم واتساب زرار التواصل (بالكود الدولي من غير +، مثال 201066683195)
+      <input id="t-whatsapp" type="tel" dir="ltr">
+    </label>
     <div class="actions">
       <button id="t-save" class="btn primary" type="button">حفظ النصوص</button>
     </div>
@@ -228,6 +251,9 @@
 </main>
 
 <footer class="foot" id="footer-text">Darken Wolf — دمياط</footer>
+  <a id="wa-float" class="wa-float" href="https://wa.me/201066683195" target="_blank" rel="noopener" aria-label="تواصل معنا واتساب" title="تواصل معنا واتساب">
+    <svg viewBox="0 0 24 24" width="26" height="26" fill="#fff" aria-hidden="true"><path d="M12.04 2a9.9 9.9 0 0 0-8.4 15.2L2 22l4.9-1.6A9.9 9.9 0 1 0 12.04 2Zm0 18.1a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-2.9.9 1-2.8-.2-.3a8.2 8.2 0 1 1 6.6 3.5Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.4 0-.5l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.5.1-.7.3-.2.3-.9.9-.9 2.2s.9 2.5 1.1 2.7c.1.2 1.8 2.8 4.4 3.9.6.3 1.1.4 1.5.6.6.2 1.2.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.2-.2-.2-.5-.3Z"/></svg>
+  </a>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>

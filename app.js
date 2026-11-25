@@ -30,6 +30,7 @@
     user: null,
     isOwner: false,
     products: [],
+    categories: [],
     texts: {},
     cart: load('dw-cart', {}),
     cat: 'all',
@@ -160,6 +161,9 @@
     var note = $('demo-note');
     if (t.note) { note.textContent = t.note; note.hidden = false; }
     else { note.hidden = true; }
+    var wa = (t.whatsapp || '').replace(/\D/g, '') || '201066683195';
+    var wf = $('wa-float');
+    if (wf) wf.href = 'https://wa.me/' + wa;
   }
   function loadProducts() {
     return sb.from('products').select('*').order('sort').order('created_at')
@@ -192,18 +196,69 @@
     }).filter(Boolean);
   }
   function catLabel(v) {
+    var c = catById(v);
+    if (c) return c.name;
     for (var i = 0; i < CATS.length; i++) if (CATS[i].value === v) return CATS[i].label;
     return v;
   }
+  function catById(id) {
+    for (var i = 0; i < state.categories.length; i++) if (state.categories[i].id === id) return state.categories[i];
+    return null;
+  }
+  function parentCats() { return state.categories.filter(function (c) { return !c.parent_id; }); }
+  function subCats(pid) { return state.categories.filter(function (c) { return c.parent_id === pid; }); }
+  function catHasProducts(c) {
+    var ids = [c.id].concat(subCats(c.id).map(function (s) { return s.id; }));
+    return state.products.some(function (p) { return p.in_stock && ids.indexOf(p.category_id) >= 0; });
+  }
+  function loadCategories() {
+    return sb.from('categories').select('*').order('sort').order('created_at')
+      .then(function (r) {
+        state.categories = r.data || [];
+        renderCatCards();
+        renderFilters();
+        renderGrid();
+      })
+      .catch(function () {});
+  }
+  function renderCatCards() {
+    var box = $('cat-cards');
+    if (!box) return;
+    box.innerHTML = '';
+    if (state.cat !== 'all') { box.hidden = true; return; }
+    box.hidden = false;
+    var parents = parentCats().filter(catHasProducts);
+    if (!parents.length) { box.hidden = true; return; }
+    parents.forEach(function (c) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cat-card';
+      var thumb = c.img
+        ? '<span class="cat-thumb"><img src="' + esc(c.img) + '" alt="" loading="lazy"></span>'
+        : '<span class="cat-thumb placeholder">' + esc(c.name.trim().charAt(0)) + '</span>';
+      b.innerHTML = thumb + '<span class="cat-name">' + esc(c.name) + '</span>';
+      b.addEventListener('click', function () { state.cat = 'p:' + c.id; renderCatCards(); renderFilters(); renderGrid(); scrollTo(0, 0); });
+      box.appendChild(b);
+    });
+  }
+
   function renderFilters() {
     var nav = $('filters');
     nav.innerHTML = '';
-    CATS.forEach(function (c) {
+    var chips = [];
+    if (state.cat.indexOf('p:') === 0) {
+      var pid = state.cat.slice(2);
+      var pc = catById(pid);
+      chips.push({ value: 'all', label: '← كل الأقسام' });
+      chips.push({ value: 'p:' + pid, label: 'كل ' + (pc ? pc.name : 'القسم') });
+      subCats(pid).forEach(function (s) { chips.push({ value: 's:' + s.id, label: s.name }); });
+    }
+    chips.forEach(function (c) {
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'chip' + (state.cat === c.value ? ' active' : '');
       b.textContent = c.label;
-      b.addEventListener('click', function () { state.cat = c.value; renderFilters(); renderGrid(); });
+      b.addEventListener('click', function () { state.cat = c.value; renderCatCards(); renderFilters(); renderGrid(); });
       nav.appendChild(b);
     });
   }
@@ -211,7 +266,16 @@
     var grid = $('grid');
     grid.innerHTML = '';
     var shown = state.products.filter(function (p) {
-      return p.in_stock && (state.cat === 'all' || p.cat === state.cat);
+      if (!p.in_stock) return false;
+      if (state.cat === 'all') return true;
+      if (state.cat.indexOf('s:') === 0) return p.category_id === state.cat.slice(2);
+      if (state.cat.indexOf('p:') === 0) {
+        var pid = state.cat.slice(2);
+        if (p.category_id === pid) return true;
+        var pc = catById(p.category_id);
+        return !!pc && pc.parent_id === pid;
+      }
+      return p.cat === state.cat;
     });
     if (!shown.length) {
       grid.innerHTML = '<p class="empty">مفيش منتجات متاحة هنا دلوقتي.</p>';
@@ -385,10 +449,12 @@
     });
     $('admin-orders').hidden = tab !== 'orders';
     $('admin-wallets').hidden = tab !== 'wallets';
+    $('admin-cats').hidden = tab !== 'cats';
     $('admin-products').hidden = tab !== 'products';
     $('admin-texts').hidden = tab !== 'texts';
     if (tab === 'orders') renderAdminOrders();
     if (tab === 'wallets') renderAdminWallets();
+    if (tab === 'cats') renderAdminCats();
     if (tab === 'products') renderAdminProducts();
     if (tab === 'texts') fillTextsForm();
   }
@@ -492,7 +558,8 @@
     $('p-name').value = p ? p.name : '';
     $('p-price').value = p ? p.price : '';
     $('p-unit').value = p ? p.unit : 'قطعة';
-    $('p-cat').value = p ? p.cat : 'kitchen';
+    fillProductCatOptions();
+    $('p-cat').value = p && p.category_id ? p.category_id : '';
     $('p-img').value = p && p.img ? p.img : '';
     $('p-stock').checked = p ? !!p.in_stock : true;
     $('p-name').focus();
@@ -503,7 +570,7 @@
       name: $('p-name').value.trim(),
       price: Number($('p-price').value) || 0,
       unit: $('p-unit').value.trim() || 'قطعة',
-      cat: $('p-cat').value,
+      category_id: $('p-cat').value || null,
       img: $('p-img').value || null,
       in_stock: $('p-stock').checked
     };
@@ -519,12 +586,101 @@
     }).catch(function () { toast('مشكلة في الحفظ'); });
   }
 
+  function fillProductCatOptions() {
+    var sel = $('p-cat');
+    sel.innerHTML = '<option value="">بدون قسم</option>';
+    parentCats().forEach(function (c) {
+      var o = document.createElement('option');
+      o.value = c.id; o.textContent = c.name;
+      sel.appendChild(o);
+      subCats(c.id).forEach(function (s) {
+        var so = document.createElement('option');
+        so.value = s.id; so.textContent = '— ' + s.name;
+        sel.appendChild(so);
+      });
+    });
+  }
+
+  /* ---------- أقسام الإدارة ---------- */
+  function renderAdminCats() {
+    var box = $('cat-list');
+    box.innerHTML = state.categories.length ? '' : '<p class="empty">مفيش أقسام. ضيف أول قسم.</p>';
+    parentCats().forEach(function (c) {
+      box.appendChild(catRow(c, false));
+      subCats(c.id).forEach(function (s) { box.appendChild(catRow(s, true)); });
+    });
+  }
+  function catRow(c, isSub) {
+    var row = document.createElement('div');
+    row.className = 'product-row' + (isSub ? ' sub' : '');
+    row.innerHTML =
+      '<div class="product-main"><strong>' + (isSub ? '— ' : '') + esc(c.name) + '</strong>' +
+      '<span>' + (c.img ? esc(c.img) : 'بدون صورة') + ' · ترتيب ' + (c.sort || 0) + '</span></div>' +
+      '<button type="button" class="btn ghost small edit">تعديل</button>' +
+      '<button type="button" class="btn ghost small danger del">حذف</button>';
+    row.querySelector('.edit').addEventListener('click', function () { openCatForm(c); });
+    row.querySelector('.del').addEventListener('click', function () {
+      if (!confirm('حذف قسم "' + c.name + '"؟ المنتجات اللي فيه هتفضل من غير قسم.')) return;
+      sb.from('categories').delete().eq('id', c.id).then(function (r) {
+        if (r.error) { toast('مشكلة في الحذف'); return; }
+        toast('اتحذف القسم');
+        loadCategories().then(renderAdminCats);
+      });
+    });
+    return row;
+  }
+  function openCatForm(c) {
+    $('cat-form').hidden = false;
+    $('cat-form-title').textContent = c ? 'تعديل قسم' : 'قسم جديد';
+    $('c-id').value = c ? c.id : '';
+    $('c-name').value = c ? c.name : '';
+    var ps = $('c-parent');
+    ps.innerHTML = '<option value="">— قسم رئيسي —</option>';
+    parentCats().forEach(function (p) {
+      if (c && p.id === c.id) return;
+      var o = document.createElement('option');
+      o.value = p.id; o.textContent = p.name;
+      ps.appendChild(o);
+    });
+    ps.value = c && c.parent_id ? c.parent_id : '';
+    var is = $('c-img');
+    is.innerHTML = '<option value="">بدون صورة</option>';
+    KNOWN_IMAGES.forEach(function (f) {
+      var o = document.createElement('option');
+      o.value = f; o.textContent = f;
+      is.appendChild(o);
+    });
+    is.value = c && c.img ? c.img : '';
+    $('c-sort').value = c ? (c.sort || 0) : (state.categories.length + 1);
+    $('c-name').focus();
+  }
+  function saveCat() {
+    var id = $('c-id').value;
+    var data = {
+      name: $('c-name').value.trim(),
+      parent_id: $('c-parent').value || null,
+      img: $('c-img').value || null,
+      sort: Number($('c-sort').value) || 0
+    };
+    if (!data.name) { toast('اكتب اسم القسم'); return; }
+    var q = id
+      ? sb.from('categories').update(data).eq('id', id)
+      : sb.from('categories').insert(data);
+    q.then(function (r) {
+      if (r.error) { toast('مشكلة في الحفظ: ' + r.error.message); return; }
+      toast('اتحفظ القسم');
+      $('cat-form').hidden = true;
+      loadCategories().then(renderAdminCats);
+    }).catch(function () { toast('مشكلة في الحفظ'); });
+  }
+
   function fillTextsForm() {
     $('t-welcome').value = state.texts.welcome || '';
     $('t-description').value = state.texts.description || '';
     $('t-note').value = state.texts.note || '';
     $('t-footer').value = state.texts.footer || '';
     $('t-payment').value = (state.texts.payment || '').trim() || DEFAULT_PAY_NUMBER;
+    $('t-whatsapp').value = (state.texts.whatsapp || '').replace(/\D/g, '') || '201066683195';
   }
   function saveTexts() {
     var value = {
@@ -532,7 +688,8 @@
       description: $('t-description').value.trim(),
       note: $('t-note').value.trim(),
       footer: $('t-footer').value.trim(),
-      payment: $('t-payment').value.trim() || DEFAULT_PAY_NUMBER
+      payment: $('t-payment').value.trim() || DEFAULT_PAY_NUMBER,
+      whatsapp: $('t-whatsapp').value.replace(/\D/g, '') || '201066683195'
     };
     sb.from('settings').upsert({ id: 'app', value: value })
       .then(function (r) {
@@ -559,6 +716,7 @@
     showApp();
     loadTexts();
     loadProducts();
+    loadCategories();
     renderFilters();
     renderCart();
     refreshOrderBadge();
@@ -850,6 +1008,9 @@
     $('wallet-open').addEventListener('click', openWallet);
     $('wallet-close').addEventListener('click', closeWallet);
     $('topup-submit').addEventListener('click', submitTopup);
+    $('cat-add').addEventListener('click', function () { openCatForm(null); });
+    $('c-save').addEventListener('click', saveCat);
+    $('c-cancel').addEventListener('click', function () { $('cat-form').hidden = true; });
     $('product-add').addEventListener('click', function () { openProductForm(null); });
     $('p-save').addEventListener('click', saveProduct);
     $('p-cancel').addEventListener('click', function () { $('product-form').hidden = true; });
