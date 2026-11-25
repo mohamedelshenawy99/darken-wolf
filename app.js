@@ -122,6 +122,28 @@
   }
 
   /* ---------- البيانات ---------- */
+  var DEFAULT_PAY_NUMBER = '01066683195';
+  function paymentNumber() {
+    return (state.texts.payment || '').trim() || DEFAULT_PAY_NUMBER;
+  }
+  function fetchBalance(uid) {
+    return sb.from('wallet_ledger').select('kind,status,amount').eq('user_id', uid).limit(500)
+      .then(function (r) {
+        if (r.error) return 0;
+        var bal = 0;
+        (r.data || []).forEach(function (x) {
+          if (x.status === 'confirmed' || x.status === 'applied') bal += Number(x.amount) || 0;
+        });
+        return bal;
+      })
+      .catch(function () { return 0; });
+  }
+  function fetchLimit(uid) {
+    return sb.from('credit_limits').select('limit_amount').eq('user_id', uid).maybeSingle()
+      .then(function (r) { return r.data ? Number(r.data.limit_amount) || 0 : 0; })
+      .catch(function () { return 0; });
+  }
+
   function loadTexts() {
     return sb.from('settings').select('value').eq('id', 'app').maybeSingle()
       .then(function (r) {
@@ -250,6 +272,12 @@
       ul.appendChild(li);
     });
     $('grand-total').textContent = egp(total);
+    var balEl = $('pay-wallet-balance');
+    if (balEl && state.user) {
+      fetchBalance(state.user.id).then(function (b) {
+        balEl.textContent = '(رصيدك: ' + egp(b) + ')';
+      });
+    }
   }
   function orderPayload() {
     var ls = lines();
@@ -277,21 +305,47 @@
     if (!payload.city) { hint.textContent = 'اكتب المدينة / المنطقة.'; return; }
     if (!$('f-address').value.trim()) { hint.textContent = 'اكتب عنوان التوصيل بالتفصيل.'; return; }
     hint.textContent = '';
+    var payMethod = (document.querySelector('input[name="pay-method"]:checked') || {}).value || 'cod';
     var btn = $('send-order');
     btn.disabled = true;
     btn.textContent = 'جاري الإرسال…';
+    if (payMethod === 'wallet') {
+      Promise.all([fetchBalance(state.user.id), fetchLimit(state.user.id)]).then(function (res) {
+        var bal = res[0], limit = res[1];
+        if (bal - payload.total < -limit) {
+          btn.disabled = false;
+          btn.textContent = 'إرسال الطلب';
+          hint.textContent = 'الرصيد مش كافي حتى مع الآجل (رصيدك: ' + egp(bal) + '، حد الآجل: ' + egp(limit) + '). اشحن رصيدك أو اختار الدفع عند الاستلام.';
+          return;
+        }
+        doInsert(payload, payMethod, btn, hint);
+      });
+      return;
+    }
+    doInsert(payload, payMethod, btn, hint);
+  }
+  function doInsert(payload, payMethod, btn, hint) {
     sb.from('orders').insert({
       customer_name: payload.customer_name,
       phone: payload.phone,
       address: payload.address,
       notes: payload.notes || null,
       items: payload.items,
-      total: payload.total
+      total: payload.total,
+      pay_method: payMethod
     }).select('id').single()
       .then(function (r) {
         btn.disabled = false;
         btn.textContent = 'إرسال الطلب';
         if (r.error) { hint.textContent = 'الطلب ما اتبعتش. جرّب تاني.'; return; }
+        if (payMethod === 'wallet') {
+          sb.from('wallet_ledger').insert({
+            kind: 'order', status: 'applied', amount: -payload.total,
+            order_id: r.data.id, customer_name: payload.customer_name
+          }).then(function (w) {
+            if (w.error) hint.textContent = 'الطلب اتسجل بس في مشكلة في خصم الرصيد، كلم صاحب الورشة.';
+          });
+        }
         state.cart = {};
         save('dw-cart', state.cart);
         renderGrid();
@@ -313,6 +367,8 @@
   /* ---------- الإدارة ---------- */
   function openAdmin() {
     $('catalog-view').hidden = true;
+    $('orders-view').hidden = true;
+    $('wallet-view').hidden = true;
     $('admin-view').hidden = false;
     setAdminTab('orders');
     window.scrollTo(0, 0);
@@ -328,9 +384,11 @@
       b.classList.toggle('active', b.getAttribute('data-tab') === tab);
     });
     $('admin-orders').hidden = tab !== 'orders';
+    $('admin-wallets').hidden = tab !== 'wallets';
     $('admin-products').hidden = tab !== 'products';
     $('admin-texts').hidden = tab !== 'texts';
     if (tab === 'orders') renderAdminOrders();
+    if (tab === 'wallets') renderAdminWallets();
     if (tab === 'products') renderAdminProducts();
     if (tab === 'texts') fillTextsForm();
   }
@@ -347,7 +405,7 @@
         box.innerHTML = '';
         orders.forEach(function (o) {
           var card = document.createElement('article');
-          card.className = 'order-card' + (o.status === 'done' ? ' done' : '');
+          card.className = 'order-card' + (o.status === 'done' ? ' done' : '') + (o.status === 'cancelled' ? ' cancelled' : '');
           var when = new Date(o.created_at).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' });
           var items = (o.items || []).map(function (it) {
             return '<li>' + esc(it.name) + ' — ' + it.qty + ' ' + esc(it.unit || '') + ' × ' + egp(it.price) + '</li>';
@@ -357,16 +415,21 @@
             '<span class="order-when">' + when + '</span></div>' +
             '<div class="order-phone" dir="ltr">' + esc(o.phone) + '</div>' +
             (o.address ? '<div class="order-address">' + esc(o.address) + '</div>' : '') +
+            (o.pay_method === 'wallet' ? '<div class="order-pay">الدفع: من المحفظة</div>' : '') +
             (o.notes ? '<div class="order-notes">' + esc(o.notes) + '</div>' : '') +
             '<ul class="order-items">' + items + '</ul>' +
             '<div class="order-foot"><strong>' + egp(o.total) + '</strong>' +
-            '<button type="button" class="btn small ' + (o.status === 'done' ? 'ghost' : 'primary') + '">' +
-              (o.status === 'done' ? 'تم ✓ — اضغط للتراجع' : 'تحديد كمُنفَّذ') + '</button></div>';
-          card.querySelector('button').addEventListener('click', function () {
+            (o.status === 'cancelled'
+              ? '<span class="order-status s-cancelled">ملغي من العميل</span></div>'
+              : '<button type="button" class="btn small ' + (o.status === 'done' ? 'ghost' : 'primary') + '">' +
+                (o.status === 'done' ? 'تم ✓ — اضغط للتراجع' : 'تحديد كمُنفَّذ') + '</button></div>');
+          var toggleBtn = card.querySelector('button');
+          if (toggleBtn) toggleBtn.addEventListener('click', function () {
             var next = o.status === 'done' ? 'new' : 'done';
             sb.from('orders').update({ status: next }).eq('id', o.id).then(function (u) {
               if (u.error) { toast('مشكلة في التحديث'); return; }
               renderAdminOrders();
+              refreshOrderBadge();
             });
           });
           box.appendChild(card);
@@ -461,13 +524,15 @@
     $('t-description').value = state.texts.description || '';
     $('t-note').value = state.texts.note || '';
     $('t-footer').value = state.texts.footer || '';
+    $('t-payment').value = (state.texts.payment || '').trim() || DEFAULT_PAY_NUMBER;
   }
   function saveTexts() {
     var value = {
       welcome: $('t-welcome').value.trim(),
       description: $('t-description').value.trim(),
       note: $('t-note').value.trim(),
-      footer: $('t-footer').value.trim()
+      footer: $('t-footer').value.trim(),
+      payment: $('t-payment').value.trim() || DEFAULT_PAY_NUMBER
     };
     sb.from('settings').upsert({ id: 'app', value: value })
       .then(function (r) {
@@ -509,6 +574,266 @@
       })
       .catch(function () {});
   }
+  /* ---------- طلباتي ---------- */
+  function statusLabel(s) {
+    if (s === 'done') return 'تم التنفيذ ✓';
+    if (s === 'cancelled') return 'ملغي';
+    return 'قيد المراجعة';
+  }
+  function openMyOrders() {
+    $('catalog-view').hidden = true;
+    $('admin-view').hidden = true;
+    $('wallet-view').hidden = true;
+    $('orders-view').hidden = false;
+    renderMyOrders();
+    scrollTo(0, 0);
+  }
+  function closeMyOrders() {
+    $('orders-view').hidden = true;
+    $('catalog-view').hidden = false;
+  }
+  function renderMyOrders() {
+    var box = $('my-orders');
+    box.innerHTML = '<p class="empty">بيتم التحميل…</p>';
+    sb.from('orders').select('*').eq('user_id', state.user.id).order('created_at', { ascending: false }).limit(50)
+      .then(function (r) {
+        if (r.error) { box.innerHTML = '<p class="empty">مشكلة في تحميل الطلبات.</p>'; return; }
+        var orders = r.data || [];
+        if (!orders.length) { box.innerHTML = '<p class="empty">مفيش طلبات لسه.</p>'; return; }
+        box.innerHTML = '';
+        orders.forEach(function (o) {
+          var card = document.createElement('article');
+          card.className = 'order-card' + (o.status === 'cancelled' ? ' cancelled' : (o.status === 'done' ? ' done' : ''));
+          var when = new Date(o.created_at).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' });
+          var items = (o.items || []).map(function (it) {
+            return '<li>' + esc(it.name) + ' — ' + it.qty + ' ' + esc(it.unit || '') + ' × ' + egp(it.price) + '</li>';
+          }).join('');
+          card.innerHTML =
+            '<div class="order-top"><strong>طلب ' + String(o.id).slice(0, 8) + '</strong>' +
+            '<span class="order-when">' + when + '</span></div>' +
+            '<div class="order-status s-' + esc(o.status) + '">' + statusLabel(o.status) + '</div>' +
+            '<div class="order-pay">' + (o.pay_method === 'wallet' ? 'الدفع: من المحفظة' : 'الدفع: عند الاستلام') + '</div>' +
+            '<ul class="order-items">' + items + '</ul>' +
+            '<div class="order-foot"><strong>' + egp(o.total) + '</strong>' +
+            (o.status === 'new' ? '<button type="button" class="btn small danger ghost">إلغاء الطلب</button>' : '') + '</div>';
+          var btn = card.querySelector('button');
+          if (btn) {
+            btn.addEventListener('click', function () {
+              if (!confirm('متأكد إنك عايز تلغي الطلب ده؟')) return;
+              sb.from('orders').update({ status: 'cancelled' }).eq('id', o.id).eq('status', 'new')
+                .then(function (u) {
+                  if (u.error) { toast('مشكلة في الإلغاء. جرّب تاني.'); return; }
+                  if (o.pay_method === 'wallet') {
+                    sb.from('wallet_ledger').insert({
+                      kind: 'refund', status: 'applied', amount: Number(o.total) || 0,
+                      order_id: o.id, customer_name: o.customer_name
+                    }).then(function () {});
+                  }
+                  toast(o.pay_method === 'wallet' ? 'اتلغى الطلب ورجع المبلغ لمحفظتك' : 'اتلغى الطلب');
+                  renderMyOrders();
+                });
+            });
+          }
+          box.appendChild(card);
+        });
+      })
+      .catch(function () { box.innerHTML = '<p class="empty">مشكلة في تحميل الطلبات.</p>'; });
+  }
+
+  /* ---------- المحفظة ---------- */
+  function openWallet() {
+    $('catalog-view').hidden = true;
+    $('admin-view').hidden = true;
+    $('orders-view').hidden = true;
+    $('wallet-view').hidden = false;
+    renderWallet();
+    scrollTo(0, 0);
+  }
+  function closeWallet() {
+    $('wallet-view').hidden = true;
+    $('catalog-view').hidden = false;
+  }
+  function renderWallet() {
+    $('wallet-pay-number').textContent = paymentNumber();
+    $('wallet-history').innerHTML = '<p class="empty">بيتم التحميل…</p>';
+    fetchBalance(state.user.id).then(function (b) { $('wallet-balance').textContent = egp(b); });
+    fetchLimit(state.user.id).then(function (l) {
+      $('wallet-limit').textContent = l > 0 ? 'حد الآجل: ' + egp(l) : '';
+    });
+    sb.from('wallet_ledger').select('*').eq('user_id', state.user.id).order('created_at', { ascending: false }).limit(50)
+      .then(function (r) {
+        if (r.error) { $('wallet-history').innerHTML = '<p class="empty">مشكلة في التحميل.</p>'; return; }
+        var rows = r.data || [];
+        if (!rows.length) { $('wallet-history').innerHTML = '<p class="empty">مفيش حركات لسه.</p>'; return; }
+        $('wallet-history').innerHTML = '';
+        rows.forEach(function (x) {
+          var div = document.createElement('div');
+          div.className = 'ledger-row';
+          var label = x.kind === 'topup'
+            ? ('شحن رصيد' + (x.method === 'instapay' ? ' (إنستاباي)' : ' (فودافون كاش)'))
+            : x.kind === 'order' ? 'دفع طلب' : x.kind === 'payment' ? 'سداد رصيد' : 'استرجاع طلب ملغي';
+          var st = x.status === 'pending' ? ' — مستني التأكيد' : x.status === 'rejected' ? ' — مرفوض' : '';
+          var when = new Date(x.created_at).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' });
+          var amt = Number(x.amount) || 0;
+          div.innerHTML = '<span>' + label + st + '<br><small>' + when + '</small></span>' +
+            '<span class="ledger-amt ' + (amt >= 0 ? 'pos' : 'neg') + '">' + (amt >= 0 ? '+' : '-') + egp(Math.abs(amt)) + '</span>';
+          $('wallet-history').appendChild(div);
+        });
+      })
+      .catch(function () { $('wallet-history').innerHTML = '<p class="empty">مشكلة في التحميل.</p>'; });
+  }
+  function readScreenshot(file) {
+    return new Promise(function (resolve) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        var scale = Math.min(1, 800 / img.width);
+        var c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * scale));
+        c.height = Math.max(1, Math.round(img.height * scale));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg', 0.6));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    });
+  }
+  function submitTopup() {
+    var hint = $('topup-hint');
+    var amount = Number($('topup-amount').value);
+    var method = $('topup-method').value;
+    var sender = $('topup-sender').value.replace(/\D/g, '');
+    var ref = $('topup-ref').value.trim();
+    var file = $('topup-shot').files && $('topup-shot').files[0];
+    if (!amount || amount <= 0) { hint.textContent = 'اكتب المبلغ اللي حولته.'; return; }
+    if (!/^01[0-9]{9}$/.test(sender)) { hint.textContent = 'اكتب رقم الموبايل اللي حوّلت منه: 11 رقم يبدأ بـ 01.'; return; }
+    if (!file) { hint.textContent = 'ارفع سكرين شوت التحويل، صاحب الورشة هيراجعها قبل تأكيد الشحن.'; return; }
+    hint.textContent = '';
+    var btn = $('topup-submit');
+    btn.disabled = true;
+    btn.textContent = 'جاري التسجيل…';
+    var name = (state.user.user_metadata && state.user.user_metadata.full_name) || state.user.email;
+    readScreenshot(file).then(function (shot) {
+      if (!shot) {
+        btn.disabled = false; btn.textContent = 'تسجيل طلب الشحن';
+        hint.textContent = 'الصورة مش واضحة. جرّب صورة تانية.'; return;
+      }
+      sb.from('wallet_ledger').insert({
+        kind: 'topup', status: 'pending', amount: amount, method: method,
+        sender_phone: sender, reference: ref || null, screenshot_data: shot, customer_name: name
+      })
+        .then(function (r) {
+          btn.disabled = false; btn.textContent = 'تسجيل طلب الشحن';
+          if (r.error) { hint.textContent = 'الطلب ما اتسجلش. جرّب تاني.'; return; }
+          $('topup-amount').value = '';
+          $('topup-sender').value = '';
+          $('topup-ref').value = '';
+          $('topup-shot').value = '';
+          toast('طلب الشحن اتسجل، هيضاف لرصيدك بعد المراجعة');
+          renderWallet();
+        })
+        .catch(function () { btn.disabled = false; btn.textContent = 'تسجيل طلب الشحن'; hint.textContent = 'الطلب ما اتسجلش. جرّب تاني.'; });
+    });
+  }
+
+  /* ---------- محافظ الإدارة ---------- */
+  function renderAdminWallets() {
+    var topupsBox = $('admin-topups'), balBox = $('admin-balances'), ledBox = $('admin-ledger');
+    topupsBox.innerHTML = balBox.innerHTML = ledBox.innerHTML = '<p class="empty">بيتم التحميل…</p>';
+    sb.from('wallet_ledger').select('*').order('created_at', { ascending: false }).limit(300)
+      .then(function (r) {
+        if (r.error) { topupsBox.innerHTML = '<p class="empty">مشكلة في التحميل.</p>'; balBox.innerHTML = ''; ledBox.innerHTML = ''; return; }
+        var rows = r.data || [];
+        var pending = rows.filter(function (x) { return x.kind === 'topup' && x.status === 'pending'; });
+        topupsBox.innerHTML = pending.length ? '' : '<p class="empty">مفيش طلبات شحن مستنية.</p>';
+        pending.forEach(function (x) {
+          var card = document.createElement('article');
+          card.className = 'order-card';
+          var when = new Date(x.created_at).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' });
+          card.innerHTML =
+            '<div class="order-top"><strong>' + esc(x.customer_name || 'عميل') + '</strong><span class="order-when">' + when + '</span></div>' +
+            '<div>' + egp(x.amount) + ' — ' + (x.method === 'instapay' ? 'إنستاباي' : 'فودافون كاش') + '</div>' +
+            '<div class="order-phone" dir="ltr">' + esc(x.sender_phone || '') + '</div>' +
+            (x.reference ? '<div class="order-notes" dir="ltr">Ref: ' + esc(x.reference) + '</div>' : '') +
+            (x.screenshot_data ? '<img class="topup-shot" src="' + x.screenshot_data + '" alt="سكرين شوت التحويل">' : '') +
+            '<div class="order-foot"><button type="button" class="btn small primary">تأكيد الشحن</button>' +
+            '<button type="button" class="btn small danger ghost">رفض</button></div>';
+          var btns = card.querySelectorAll('button');
+          btns[0].addEventListener('click', function () { setTopup(x.id, 'confirmed'); });
+          btns[1].addEventListener('click', function () { setTopup(x.id, 'rejected'); });
+          topupsBox.appendChild(card);
+        });
+        var map = {};
+        rows.forEach(function (x) {
+          if (x.status !== 'confirmed' && x.status !== 'applied') return;
+          if (!map[x.user_id]) map[x.user_id] = { name: x.customer_name || 'عميل', bal: 0 };
+          if (x.customer_name) map[x.user_id].name = x.customer_name;
+          map[x.user_id].bal += Number(x.amount) || 0;
+        });
+        sb.from('credit_limits').select('*').then(function (cr) {
+          (cr.data || []).forEach(function (c) {
+            if (!map[c.user_id]) map[c.user_id] = { name: c.customer_name || 'عميل', bal: 0 };
+            map[c.user_id].limit = Number(c.limit_amount) || 0;
+            if (c.customer_name) map[c.user_id].name = c.customer_name;
+          });
+          var custs = Object.keys(map);
+          balBox.innerHTML = custs.length ? '' : '<p class="empty">مفيش أرصدة لسه.</p>';
+          custs.forEach(function (uid) {
+            var c = map[uid];
+            var card = document.createElement('article');
+            card.className = 'order-card';
+            var owed = c.bal < 0;
+            var avail = c.bal + (c.limit || 0);
+            card.innerHTML =
+              '<div class="order-top"><strong>' + esc(c.name) + '</strong>' +
+              '<span class="ledger-amt ' + (c.bal >= 0 ? 'pos' : 'neg') + '">' + (owed ? 'عليه: ' : 'رصيد: ') + egp(Math.abs(c.bal)) + '</span></div>' +
+              '<div class="order-pay">متاح آجل دلوقتي: ' + egp(avail) + '</div>' +
+              '<div class="wallet-admin-row">حد الآجل: <input type="number" min="0" step="50" value="' + (c.limit || 0) + '" data-role="limit"> <button type="button" class="btn small ghost" data-role="save-limit">حفظ الحد</button></div>' +
+              '<div class="wallet-admin-row">تسجيل سداد: <input type="number" min="1" step="1" placeholder="المبلغ" data-role="pay"> <button type="button" class="btn small primary" data-role="save-pay">سداد</button></div>';
+            card.querySelector('[data-role="save-limit"]').addEventListener('click', function () {
+              var v = Number(card.querySelector('[data-role="limit"]').value) || 0;
+              sb.from('credit_limits').upsert({ user_id: uid, limit_amount: v, customer_name: c.name })
+                .then(function (rr) { toast(rr.error ? 'مشكلة في الحفظ' : 'اتحفظ حد الآجل'); });
+            });
+            card.querySelector('[data-role="save-pay"]').addEventListener('click', function () {
+              var v = Number(card.querySelector('[data-role="pay"]').value);
+              if (!v || v <= 0) { toast('اكتب مبلغ السداد الأول'); return; }
+              sb.from('wallet_ledger').insert({ user_id: uid, kind: 'payment', status: 'applied', amount: v, customer_name: c.name })
+                .then(function (rr) {
+                  if (rr.error) { toast('مشكلة في التسجيل'); return; }
+                  toast('اتسجل السداد');
+                  renderAdminWallets();
+                });
+            });
+            balBox.appendChild(card);
+          });
+        });
+        ledBox.innerHTML = rows.length ? '' : '<p class="empty">مفيش حركات.</p>';
+        rows.slice(0, 40).forEach(function (x) {
+          var d = document.createElement('div');
+          d.className = 'ledger-row';
+          var label = x.kind === 'topup' ? 'شحن' : x.kind === 'order' ? 'دفع طلب' : x.kind === 'payment' ? 'سداد' : 'استرجاع';
+          var st = x.status === 'pending' ? ' (مستني)' : x.status === 'rejected' ? ' (مرفوض)' : '';
+          var when = new Date(x.created_at).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+          var amt = Number(x.amount) || 0;
+          d.innerHTML = '<span>' + esc(x.customer_name || 'عميل') + ' — ' + label + st + '<br><small>' + when + '</small></span>' +
+            '<span class="ledger-amt ' + (amt >= 0 ? 'pos' : 'neg') + '">' + (amt >= 0 ? '+' : '-') + egp(Math.abs(amt)) + '</span>';
+          ledBox.appendChild(d);
+        });
+      })
+      .catch(function () { topupsBox.innerHTML = '<p class="empty">مشكلة في التحميل.</p>'; });
+  }
+  function setTopup(id, status) {
+    sb.from('wallet_ledger').update({ status: status }).eq('id', id)
+      .then(function (r) {
+        if (r.error) { toast('مشكلة في التحديث'); return; }
+        toast(status === 'confirmed' ? 'اتأكد الشحن واتضاف للرصيد' : 'اترفض الطلب');
+        renderAdminWallets();
+      })
+      .catch(function () { toast('مشكلة في التحديث'); });
+  }
+
   function bind() {
     bindAuth();
     $('logout').addEventListener('click', function () {
@@ -520,6 +845,11 @@
       b.addEventListener('click', function () { setAdminTab(b.getAttribute('data-tab')); });
     });
     $('send-order').addEventListener('click', sendOrder);
+    $('my-orders-open').addEventListener('click', openMyOrders);
+    $('my-orders-close').addEventListener('click', closeMyOrders);
+    $('wallet-open').addEventListener('click', openWallet);
+    $('wallet-close').addEventListener('click', closeWallet);
+    $('topup-submit').addEventListener('click', submitTopup);
     $('product-add').addEventListener('click', function () { openProductForm(null); });
     $('p-save').addEventListener('click', saveProduct);
     $('p-cancel').addEventListener('click', function () { $('product-form').hidden = true; });

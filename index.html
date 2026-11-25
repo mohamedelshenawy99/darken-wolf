@@ -49,6 +49,8 @@
   </div>
   <div class="user-chip">
     <span id="user-name"></span>
+    <button id="wallet-open" class="btn ghost small" type="button">المحفظة</button>
+    <button id="my-orders-open" class="btn ghost small" type="button">طلباتي</button>
     <button id="admin-open" class="btn ghost small" type="button" hidden>الإدارة<span id="admin-badge" class="admin-badge" hidden></span></button>
     <button id="logout" class="btn ghost small" type="button">خروج</button>
   </div>
@@ -86,6 +88,11 @@
       <label class="field">ملاحظات (اختياري)
         <textarea id="f-notes" rows="2"></textarea>
       </label>
+      <div class="field">طريقة الدفع</div>
+      <div class="pay-methods">
+        <label class="pay-method"><input type="radio" name="pay-method" value="cod" checked> الدفع عند الاستلام</label>
+        <label class="pay-method"><input type="radio" name="pay-method" value="wallet"> من رصيد المحفظة <span id="pay-wallet-balance" class="pay-balance"></span></label>
+      </div>
       <div class="actions">
         <button id="send-order" class="btn primary" type="button">إرسال الطلب</button>
       </div>
@@ -99,6 +106,55 @@
   </section>
 </main>
 
+<!-- طلباتي -->
+<main id="orders-view" hidden>
+  <div class="admin-head">
+    <h2>طلباتي</h2>
+    <button id="my-orders-close" class="btn ghost small" type="button">رجوع للمتجر</button>
+  </div>
+  <div id="my-orders"></div>
+</main>
+
+<!-- المحفظة -->
+<main id="wallet-view" hidden>
+  <div class="admin-head">
+    <h2>المحفظة</h2>
+    <button id="wallet-close" class="btn ghost small" type="button">رجوع للمتجر</button>
+  </div>
+  <div class="wallet-balance">
+    <span>رصيدك الحالي<br><small id="wallet-limit"></small></span>
+    <strong id="wallet-balance">…</strong>
+  </div>
+  <section class="wallet-topup">
+    <h3>شحن الرصيد</h3>
+    <p class="wallet-pay-info">حوّل المبلغ على <strong id="wallet-pay-number" dir="ltr">…</strong> (فودافون كاش أو إنستاباي)، وبعدين سجّل العملية هنا. الرصيد بيضاف بعد ما صاحب الورشة يراجع التحويل.</p>
+    <label class="field">المبلغ المحوَّل (ج)
+      <input id="topup-amount" type="number" min="1" step="1" inputmode="numeric">
+    </label>
+    <label class="field">طريقة التحويل
+      <select id="topup-method">
+        <option value="vodafone">فودافون كاش</option>
+        <option value="instapay">إنستاباي</option>
+      </select>
+    </label>
+    <label class="field">رقم الموبايل اللي حوّلت منه
+      <input id="topup-sender" type="tel" dir="ltr" placeholder="01xxxxxxxxx" autocomplete="off">
+    </label>
+    <label class="field">سكرين شوت التحويل
+      <input id="topup-shot" type="file" accept="image/*">
+    </label>
+    <label class="field">رقم العملية / المرجع (اختياري)
+      <input id="topup-ref" type="text" placeholder="لو موجود في السكرين شوت">
+    </label>
+    <div class="hint" id="topup-hint"></div>
+    <div class="actions">
+      <button id="topup-submit" class="btn primary" type="button">تسجيل طلب الشحن</button>
+    </div>
+  </section>
+  <h3>حركات المحفظة</h3>
+  <div id="wallet-history"></div>
+</main>
+
 <!-- شاشة الإدارة -->
 <main id="admin-view" hidden>
   <div class="admin-head">
@@ -107,11 +163,21 @@
   </div>
   <nav class="admin-tabs">
     <button class="admin-tab active" data-tab="orders" type="button">الطلبات</button>
+    <button class="admin-tab" data-tab="wallets" type="button">المحافظ</button>
     <button class="admin-tab" data-tab="products" type="button">المنتجات</button>
     <button class="admin-tab" data-tab="texts" type="button">النصوص</button>
   </nav>
 
   <section id="admin-orders" class="admin-panel"></section>
+
+  <section id="admin-wallets" class="admin-panel" hidden>
+    <h3>طلبات شحن مستنية</h3>
+    <div id="admin-topups"></div>
+    <h3>أرصدة العملاء</h3>
+    <div id="admin-balances"></div>
+    <h3>آخر حركات المحافظ</h3>
+    <div id="admin-ledger"></div>
+  </section>
 
   <section id="admin-products" class="admin-panel" hidden>
     <button id="product-add" class="btn primary" type="button">+ منتج جديد</button>
@@ -151,6 +217,9 @@
     </label>
     <label class="field">نص أسفل الصفحة
       <input id="t-footer" type="text">
+    </label>
+    <label class="field">رقم استلام التحويلات (فودافون كاش / إنستاباي)
+      <input id="t-payment" type="tel" dir="ltr">
     </label>
     <div class="actions">
       <button id="t-save" class="btn primary" type="button">حفظ النصوص</button>

@@ -187,6 +187,27 @@ main {
 .order-notes{font-size:13px;color:#6b6164;background:#f6f1f2;border-radius:8px;padding:6px 8px;margin:6px 0}
 .order-address{font-size:13px;color:#6b6164;background:#fdf3ec;border:1px solid #f3ddcb;border-radius:8px;padding:6px 8px;margin:6px 0;white-space:pre-line}
 .admin-badge{display:inline-block;min-width:18px;height:18px;line-height:18px;border-radius:9px;background:#d03010;color:#fff;font-size:12px;font-weight:700;text-align:center;margin-inline-start:6px;padding:0 4px}
+.order-status{display:inline-block;font-size:12px;font-weight:700;border-radius:8px;padding:3px 10px;margin:4px 0}
+.order-status.s-new{background:#fdf3ec;color:#c23c12;border:1px solid #f3ddcb}
+.order-status.s-done{background:#eaf3ee;color:#2e6b4f;border:1px solid #d2e5da}
+.order-status.s-cancelled{background:#f6e9e8;color:#b3261e;border:1px solid #edd0cd}
+.order-card.cancelled{opacity:.75;border-color:#edd0cd}
+.wallet-balance{display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #eee;border-radius:14px;padding:14px 16px;margin-bottom:14px}
+.wallet-balance strong{font-size:22px;color:#c23c12}
+.wallet-pay-info{font-size:13px;color:#6b6258;background:#fdf3ec;border:1px solid #f3ddcb;border-radius:10px;padding:8px 12px;margin:6px 0 12px}
+.wallet-topup{margin-bottom:18px}
+.pay-methods{display:flex;flex-direction:column;gap:8px;margin:4px 0 8px}
+.pay-method{display:flex;align-items:center;gap:8px;font-size:14px}
+.pay-balance{font-size:12px;color:#6b6258}
+.order-pay{font-size:13px;color:#6b6258;margin-top:2px}
+.ledger-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #f1ece6;font-size:13px}
+.ledger-row small{color:#9a9288}
+.ledger-amt{font-weight:700;white-space:nowrap}
+.ledger-amt.pos{color:#2e6b4f}
+.ledger-amt.neg{color:#b3261e}
+.topup-shot{display:block;max-width:100%;max-height:220px;border-radius:10px;border:1px solid #eee;margin:8px 0}
+.wallet-admin-row{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;flex-wrap:wrap}
+.wallet-admin-row input{width:90px;padding:6px 8px;border:1px solid #e3ddd4;border-radius:8px;font:inherit}
 .order-items{margin:8px 0;padding-right:18px;font-size:14px}
 .order-foot{display:flex;justify-content:space-between;align-items:center}
 .product-row{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #e6dedf;border-radius:12px;padding:10px;margin-bottom:8px;flex-wrap:wrap}
