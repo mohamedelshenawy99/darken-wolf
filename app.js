@@ -14,7 +14,14 @@
   var KNOWN_IMAGES = [
     'photo-hinge.jpg','photo-drawer-slide.jpg','photo-handle.jpg','photo-gas-strut.jpg',
     'photo-leg.jpg','photo-led-strip.jpg','photo-alu-profile.jpg','photo-roller.jpg',
-    'photo-lock.jpg','photo-epdm.jpg','photo-mesh.jpg','photo-upvc-handle.jpg'
+    'photo-lock.jpg','photo-epdm.jpg','photo-mesh.jpg','photo-upvc-handle.jpg',
+    'photo-tools.jpg',
+    'photo-brushes.jpg',
+    'photo-rubber.jpg',
+    'photo-adhesive.jpg',
+    'photo-awning.jpg',
+    'photo-pullout.jpg',
+    'photo-basket.jpg',
   ];
 
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
