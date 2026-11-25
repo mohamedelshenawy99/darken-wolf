@@ -227,7 +227,9 @@ main {
 .wa-float{position:fixed;bottom:18px;left:18px;z-index:60;width:52px;height:52px;border-radius:50%;background:#25D366;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.25);text-decoration:none}
 .wa-float:active{transform:scale(.95)}
 /* كروت الأقسام */
-.cat-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px;margin:0 0 12px}
+.cat-cards{display:flex;gap:10px;margin:0 0 12px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.cat-cards::-webkit-scrollbar{display:none}
+.cat-cards>*{flex:0 0 auto;min-width:96px;max-width:120px}
 .cat-cards[hidden]{display:none}
 .cat-card{background:#fff;border:1px solid #eee;border-radius:14px;padding:10px 8px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;font:inherit}
 .cat-card:active{transform:scale(.97)}
