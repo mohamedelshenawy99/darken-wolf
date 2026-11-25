@@ -26,7 +26,7 @@
     'photo-upvc-handle-vega.jpg',
   ];
 
-  var BUILD = 'dw-v30';
+  var BUILD = 'dw-v31';
 
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
   function egp(n) { return fmt.format(n) + ' ج'; }
@@ -846,11 +846,13 @@
     $('admin-cats').hidden = tab !== 'cats';
     $('admin-products').hidden = tab !== 'products';
     $('admin-texts').hidden = tab !== 'texts';
+    $('admin-books').hidden = tab !== 'books';
     if (tab === 'orders') renderAdminOrders();
     if (tab === 'wallets') renderAdminWallets();
     if (tab === 'cats') renderAdminCats();
     if (tab === 'products') renderAdminProducts();
     if (tab === 'texts') fillTextsForm();
+    if (tab === 'books') bkRender();
   }
 
   function renderAdminOrders() {
@@ -888,6 +890,9 @@
             var next = o.status === 'done' ? 'new' : 'done';
             sb.from('orders').update({ status: next }).eq('id', o.id).then(function (u) {
               if (u.error) { toast('مشكلة في التحديث'); return; }
+              var bk = next === 'done' ? booksDeliverOrder(o) : booksUndoOrder(o.id);
+              bk.then(function () { if (next === 'done') toast('اتخصم من المخزن واتسجل في الحسابات'); })
+                .catch(function () { toast('الأوردر اتحدث بس مشكلة في المخزن، راجع الأرصدة'); });
               renderAdminOrders();
               refreshOrderBadge();
             });
@@ -1099,6 +1104,288 @@
         toast('اتحفظت النصوص');
       })
       .catch(function () { toast('مشكلة في الحفظ'); });
+  }
+
+  /* ---------- المخزن والحسابات (للمالك بس) ---------- */
+  var BK = { tab: 'stock', moves: [], cash: [], low: 5, pend: [], month: '' };
+  function todayStr() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function uuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) { var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); });
+  }
+  function bkKey(name, color) { return norm(name) + '|' + (color || ''); }
+  function loadBooks() {
+    return Promise.all([
+      sb.from('stock_moves').select('*').order('move_date').order('created_at').limit(5000),
+      sb.from('books_cash').select('*').order('move_date').order('created_at').limit(5000),
+      sb.from('books_settings').select('low_stock').eq('id', 1).maybeSingle()
+    ]).then(function (r) {
+      if (r[0].error || r[1].error) throw new Error('books');
+      BK.moves = r[0].data || [];
+      BK.cash = r[1].data || [];
+      if (r[2].data && r[2].data.low_stock != null) BK.low = Number(r[2].data.low_stock);
+    });
+  }
+  function bkStock(moves) {
+    var st = {};
+    moves.forEach(function (m) {
+      var k = bkKey(m.product_name, m.color);
+      var s = st[k] || (st[k] = { name: m.product_name, color: m.color || null, qty: 0, cq: 0, cs: 0, lastSale: null, first: m.move_date });
+      var q = Number(m.qty);
+      s.qty += q;
+      if (m.kind !== 'sale' && q > 0 && m.unit_cost != null) { s.cq += q; s.cs += q * Number(m.unit_cost); }
+      if (m.kind === 'sale' && (!s.lastSale || m.move_date > s.lastSale)) s.lastSale = m.move_date;
+      if (m.move_date < s.first) s.first = m.move_date;
+    });
+    Object.keys(st).forEach(function (k) { var s = st[k]; s.avg = s.cq ? s.cs / s.cq : 0; s.value = Math.max(s.qty, 0) * s.avg; });
+    return st;
+  }
+  function bkCashTotal() { return BK.cash.reduce(function (s, c) { return s + Number(c.amount); }, 0); }
+  function bkAvg(name, color) {
+    var s = bkStock(BK.moves)[bkKey(name, color)];
+    return s && s.cq ? s.avg : null;
+  }
+  function productByName(name) {
+    var n = norm(name);
+    for (var i = 0; i < state.products.length; i++) if (norm(state.products[i].name) === n) return state.products[i];
+    return null;
+  }
+  // لما الأوردر يتحدد "منفذ": يخصم من المخزن ويزود الكاش. التراجع بيلغيهم.
+  function booksUndoOrder(orderId) {
+    return sb.from('stock_moves').delete().eq('order_id', orderId).eq('kind', 'sale').then(function (a) {
+      if (a.error) throw a.error;
+      return sb.from('books_cash').delete().eq('order_id', orderId).eq('kind', 'sale');
+    }).then(function (b) { if (b.error) throw b.error; });
+  }
+  function booksDeliverOrder(o) {
+    return loadBooks().then(function () { return booksUndoOrder(o.id); }).then(function () { return loadBooks(); }).then(function () {
+      var rows = (o.items || []).map(function (it) {
+        var p = productByName(it.name);
+        return {
+          kind: 'sale', product_id: p ? p.id : null, product_name: it.name, color: it.color || null,
+          qty: -Number(it.qty), unit_cost: bkAvg(it.name, it.color || null), unit_price: Number(it.price),
+          order_id: o.id, move_date: todayStr()
+        };
+      });
+      return sb.from('stock_moves').insert(rows).then(function (a) {
+        if (a.error) throw a.error;
+        return sb.from('books_cash').insert({ kind: 'sale', amount: Number(o.total), order_id: o.id, move_date: todayStr(), note: 'أوردر ' + String(o.id).slice(0, 8) });
+      }).then(function (b) { if (b.error) throw b.error; });
+    });
+  }
+  function bkRender() {
+    var box = $('admin-books');
+    box.innerHTML = '<p class="empty">بيتم التحميل…</p>';
+    loadBooks().then(function () {
+      var tabs = [['stock', 'الأرصدة'], ['buy', 'شراء'], ['rep', 'التقارير'], ['set', 'إعدادات']];
+      var h = '<nav class="bk-tabs">' + tabs.map(function (t) {
+        return '<button type="button" class="bk-tab' + (BK.tab === t[0] ? ' active' : '') + '" data-bk="' + t[0] + '">' + t[1] + '</button>';
+      }).join('') + '</nav><div id="bk-body"></div>';
+      box.innerHTML = h;
+      box.querySelectorAll('.bk-tab').forEach(function (b) {
+        b.addEventListener('click', function () { BK.tab = b.getAttribute('data-bk'); bkRender(); });
+      });
+      var body = $('bk-body');
+      if (BK.tab === 'stock') bkStockView(body);
+      else if (BK.tab === 'buy') bkBuyView(body);
+      else if (BK.tab === 'rep') bkRepView(body);
+      else bkSetView(body);
+    }).catch(function () { box.innerHTML = '<p class="empty">مشكلة في تحميل المخزن. جرب تاني.</p>'; });
+  }
+  function bkSummaryHtml(st) {
+    var cash = bkCashTotal();
+    var sv = 0; Object.keys(st).forEach(function (k) { sv += st[k].value; });
+    return '<div class="bk-sum"><div><span>الكاش</span><strong>' + egp(cash) + '</strong></div>' +
+      '<div><span>قيمة المخزن</span><strong>' + egp(sv) + '</strong></div>' +
+      '<div><span>الإجمالي</span><strong>' + egp(cash + sv) + '</strong></div></div>';
+  }
+  function bkStockView(body) {
+    var st = bkStock(BK.moves);
+    var list = Object.keys(st).map(function (k) { return st[k]; }).sort(function (a, b) { return a.name.localeCompare(b.name, 'ar'); });
+    var lows = list.filter(function (s) { return s.qty <= BK.low; });
+    var h = bkSummaryHtml(st);
+    if (lows.length) h += '<div class="bk-alert">⚠ تحت الحد (' + BK.low + ' أو أقل): ' + lows.map(function (s) { return esc(s.name + (s.color ? ' ' + s.color : '')) + ' (' + s.qty + ')'; }).join('، ') + '</div>';
+    if (!list.length) h += '<p class="empty">المخزن فاضي. سجل أول شراء من تبويب "شراء".</p>';
+    else {
+      h += '<ul class="bk-list">' + list.map(function (s) {
+        return '<li class="' + (s.qty <= BK.low ? 'low' : '') + '"><div><strong>' + esc(s.name) + '</strong>' + (s.color ? ' <small>' + esc(s.color) + '</small>' : '') +
+          '<small>متوسط التكلفة: ' + (s.cq ? egp(Math.round(s.avg * 100) / 100) : 'مجهولة') + '</small></div>' +
+          '<div class="bk-qty">' + s.qty + '<small>' + egp(Math.round(s.value)) + '</small></div></li>';
+      }).join('') + '</ul>';
+    }
+    body.innerHTML = h;
+  }
+  function bkProdOptions() {
+    return state.products.slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'ar'); }).map(function (p) {
+      return '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>';
+    }).join('');
+  }
+  function bkBuyView(body) {
+    var h = '<div class="bk-form"><h3>إضافة للمخزن</h3>' +
+      '<label class="field">المنتج<select id="bb-prod">' + bkProdOptions() + '</select></label>' +
+      '<label class="field" id="bb-color-wrap">اللون<select id="bb-color"></select></label>' +
+      '<label class="field">الكمية<input id="bb-qty" type="number" inputmode="decimal" min="0" step="any"></label>' +
+      '<label class="field">سعر شراء القطعة (سيبه فاضي لو هتكتب إجمالي الفاتورة تحت)<input id="bb-cost" type="number" inputmode="decimal" min="0" step="any"></label>' +
+      '<button id="bb-add" class="btn ghost" type="button">+ أضف الصنف للفاتورة</button>' +
+      '<ul id="bb-pend" class="bk-list"></ul>' +
+      '<label class="field">إجمالي اللي دفعته للفاتورة كلها (اختياري: بيتوزع على الأصناف بنسبة سعر بيعها)<input id="bb-total" type="number" inputmode="decimal" min="0" step="any"></label>' +
+      '<label class="field">التاريخ<input id="bb-date" type="date" value="' + todayStr() + '"></label>' +
+      '<label class="check"><input id="bb-open" type="checkbox"> ده رصيد موجود عندي من قبل (مش بيخصم من الكاش)</label>' +
+      '<button id="bb-save" class="btn primary" type="button">سجّل الشراء</button><p id="bb-hint" class="hint"></p></div>';
+    body.innerHTML = h;
+    function fillColors() {
+      var p = productById($('bb-prod').value);
+      var cols = ((p && p.colors) || []).filter(Boolean);
+      $('bb-color-wrap').hidden = !cols.length;
+      $('bb-color').innerHTML = cols.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+    }
+    function drawPend() {
+      $('bb-pend').innerHTML = BK.pend.map(function (l, i) {
+        return '<li><div><strong>' + esc(l.name) + '</strong>' + (l.color ? ' <small>' + esc(l.color) + '</small>' : '') +
+          '<small>' + l.qty + ' قطعة' + (l.cost != null ? ' × ' + egp(l.cost) : '') + '</small></div><button type="button" class="l-del" data-i="' + i + '">✕</button></li>';
+      }).join('');
+      $('bb-pend').querySelectorAll('.l-del').forEach(function (b) {
+        b.addEventListener('click', function () { BK.pend.splice(Number(b.getAttribute('data-i')), 1); drawPend(); });
+      });
+    }
+    fillColors(); drawPend();
+    $('bb-prod').addEventListener('change', fillColors);
+    $('bb-add').addEventListener('click', function () {
+      var p = productById($('bb-prod').value);
+      var qty = Number($('bb-qty').value);
+      var costRaw = $('bb-cost').value;
+      var hint = $('bb-hint');
+      if (!p || !(qty > 0)) { hint.textContent = 'اكتب الكمية.'; return; }
+      BK.pend.push({ pid: p.id, name: p.name, price: Number(p.price), color: $('bb-color-wrap').hidden ? null : $('bb-color').value, qty: qty, cost: costRaw === '' ? null : Number(costRaw) });
+      $('bb-qty').value = ''; $('bb-cost').value = ''; hint.textContent = '';
+      drawPend();
+    });
+    $('bb-save').addEventListener('click', function () { bkSavePurchase(); });
+  }
+  function bkSavePurchase() {
+    var hint = $('bb-hint');
+    var lines = BK.pend.slice();
+    if (!lines.length) { hint.textContent = 'ضيف صنف واحد على الأقل بزرار "أضف الصنف".'; return; }
+    var total = Number($('bb-total').value);
+    if (total > 0) {
+      var w = lines.reduce(function (s, l) { return s + l.qty * (l.price || 1); }, 0) || 1;
+      lines.forEach(function (l) { l.cost = Math.round((total * (l.qty * (l.price || 1)) / w / l.qty) * 100) / 100; });
+    } else if (lines.some(function (l) { return l.cost == null || isNaN(l.cost); })) {
+      hint.textContent = 'اكتب سعر الشراء لكل صنف، أو اكتب إجمالي الفاتورة.'; return;
+    }
+    var opening = $('bb-open').checked;
+    var date = $('bb-date').value || todayStr();
+    var batch = uuid();
+    var cost = lines.reduce(function (s, l) { return s + l.qty * l.cost; }, 0);
+    var btn = $('bb-save'); btn.disabled = true;
+    var rows = lines.map(function (l) {
+      return { kind: opening ? 'adjust' : 'purchase', product_id: l.pid, product_name: l.name, color: l.color, qty: l.qty, unit_cost: l.cost, batch_id: batch, move_date: date };
+    });
+    var cash = bkCashTotal();
+    var topup = !opening && cash < cost ? Math.round((cost - cash) * 100) / 100 : 0;
+    var p = Promise.resolve({});
+    if (topup > 0) p = sb.from('books_cash').insert({ kind: 'capital_add', amount: topup, batch_id: batch, move_date: date, note: 'زيادة رأس مال لتغطية الشراء' });
+    p.then(function (a) {
+      if (a.error) throw a.error;
+      if (!opening) return sb.from('books_cash').insert({ kind: 'purchase', amount: -cost, batch_id: batch, move_date: date, note: 'شراء' });
+      return {};
+    }).then(function (b) {
+      if (b.error) throw b.error;
+      return sb.from('stock_moves').insert(rows);
+    }).then(function (c) {
+      btn.disabled = false;
+      if (c.error) throw c.error;
+      BK.pend = [];
+      toast(topup > 0 ? 'اتسجل الشراء وزيادة رأس المال ' + egp(topup) : 'اتسجل الشراء');
+      BK.tab = 'stock'; bkRender();
+    }).catch(function () { btn.disabled = false; hint.textContent = 'مشكلة في الحفظ. راجع الأرصدة قبل ما تعيد.'; });
+  }
+  function bkMonthsList() {
+    var set = {};
+    BK.moves.forEach(function (m) { if (m.kind === 'sale') set[String(m.move_date).slice(0, 7)] = 1; });
+    return Object.keys(set).sort().reverse();
+  }
+  function bkRepView(body) {
+    var months = bkMonthsList();
+    var sel = BK.month || 'all';
+    var sales = BK.moves.filter(function (m) { return m.kind === 'sale' && (sel === 'all' || String(m.move_date).slice(0, 7) === sel || (sel.length === 4 && String(m.move_date).slice(0, 4) === sel)); });
+    var years = {}; months.forEach(function (m) { years[m.slice(0, 4)] = 1; });
+    var opts = '<option value="all"' + (sel === 'all' ? ' selected' : '') + '>كل الفترة</option>' +
+      Object.keys(years).sort().reverse().map(function (y) { return '<option value="' + y + '"' + (sel === y ? ' selected' : '') + '>سنة ' + y + '</option>'; }).join('') +
+      months.map(function (m) { return '<option value="' + m + '"' + (sel === m ? ' selected' : '') + '>شهر ' + m + '</option>'; }).join('');
+    var per = {}; var unknown = 0; var rev = 0, cogs = 0;
+    sales.forEach(function (m) {
+      var q = -Number(m.qty);
+      var r = q * Number(m.unit_price || 0);
+      var c = q * Number(m.unit_cost || 0);
+      if (m.unit_cost == null) unknown++;
+      var p = per[m.product_name] || (per[m.product_name] = { name: m.product_name, qty: 0, rev: 0, cogs: 0, unk: false });
+      p.qty += q; p.rev += r; p.cogs += c; if (m.unit_cost == null) p.unk = true;
+      rev += r; cogs += c;
+    });
+    var arr = Object.keys(per).map(function (k) { var p = per[k]; p.profit = p.rev - p.cogs; p.margin = p.rev ? p.profit / p.rev * 100 : 0; return p; });
+    var h = '<label class="field">الفترة<select id="rp-sel">' + opts + '</select></label>';
+    h += '<div class="bk-sum"><div><span>مبيعات</span><strong>' + egp(Math.round(rev)) + '</strong></div><div><span>تكلفتها</span><strong>' + egp(Math.round(cogs)) + '</strong></div><div><span>الربح</span><strong>' + egp(Math.round(rev - cogs)) + '</strong></div></div>';
+    if (unknown) h += '<div class="bk-alert">فيه ' + unknown + ' صنف اتباع من غير تكلفة شراء مسجلة، فالربح بتاعه محسوب عالي. سجل شراءه.</div>';
+    if (!arr.length) h += '<p class="empty">مفيش مبيعات مسجلة في الفترة دي. الربح بيتحسب لما تحدد الأوردر "منفذ".</p>';
+    else {
+      arr.sort(function (a, b) { return b.profit - a.profit; });
+      h += '<h3>الربح لكل منتج</h3><ul class="bk-list">' + arr.map(function (p) {
+        return '<li><div><strong>' + esc(p.name) + '</strong><small>' + p.qty + ' قطعة — هامش ' + Math.round(p.margin) + '%' + (p.unk ? ' (تكلفة ناقصة)' : '') + '</small></div><div class="bk-qty">' + egp(Math.round(p.profit)) + '</div></li>';
+      }).join('') + '</ul>';
+      var byM = arr.filter(function (p) { return !p.unk; }).sort(function (a, b) { return b.margin - a.margin; });
+      if (byM.length >= 2) {
+        h += '<h3>أعلى هامش</h3><p>' + byM.slice(0, 3).map(function (p) { return esc(p.name) + ' (' + Math.round(p.margin) + '%)'; }).join('، ') + '</p>' +
+          '<h3>أضعف هامش</h3><p>' + byM.slice(-3).reverse().map(function (p) { return esc(p.name) + ' (' + Math.round(p.margin) + '%)'; }).join('، ') + '</p>';
+      }
+    }
+    // راكد + استهلاك شهري + إعادة الطلب
+    var st = bkStock(BK.moves);
+    var now = new Date();
+    var slow = [], reorder = [];
+    Object.keys(st).forEach(function (k) {
+      var s = st[k];
+      var sold = BK.moves.filter(function (m) { return m.kind === 'sale' && bkKey(m.product_name, m.color) === k; });
+      var days = s.lastSale ? Math.floor((now - new Date(s.lastSale)) / 86400000) : Math.floor((now - new Date(s.first)) / 86400000);
+      if (s.qty > 0 && days >= 60) slow.push(esc(s.name + (s.color ? ' ' + s.color : '')) + ' (' + s.qty + ' قطعة، من ' + days + ' يوم من غير بيع)');
+      var spanDays = Math.min(365, Math.max(30, Math.floor((now - new Date(s.first)) / 86400000)));
+      var tot = sold.reduce(function (a, m) { return a + (-Number(m.qty)); }, 0);
+      var avg = tot / (spanDays / 30);
+      if (avg > 0 && s.qty < avg) reorder.push(esc(s.name + (s.color ? ' ' + s.color : '')) + ': بيستهلك ~' + Math.round(avg * 10) / 10 + ' في الشهر، الموجود ' + s.qty + '، اطلب ~' + Math.ceil(2 * avg - s.qty));
+    });
+    h += '<h3>راكد (من غير بيع 60 يوم أو أكتر)</h3>' + (slow.length ? '<ul class="bk-plain"><li>' + slow.join('</li><li>') + '</li></ul>' : '<p class="empty">مفيش.</p>');
+    h += '<h3>اقتراح إعادة الطلب (يكفي شهرين)</h3>' + (reorder.length ? '<ul class="bk-plain"><li>' + reorder.join('</li><li>') + '</li></ul>' : '<p class="empty">مفيش حاجة محتاجة دلوقتي، أو لسه مفيش مبيعات تكفي للحساب.</p>');
+    body.innerHTML = h;
+    $('rp-sel').addEventListener('change', function () { BK.month = $('rp-sel').value; bkRepView(body); });
+  }
+  function bkSetView(body) {
+    var start = BK.cash.filter(function (c) { return c.kind === 'capital_start'; })[0];
+    body.innerHTML = '<div class="bk-form"><h3>رأس المال</h3>' +
+      '<p class="empty">الكاش الحالي: ' + egp(bkCashTotal()) + (start ? ' — رأس المال المبدئي المسجل: ' + egp(start.amount) : ' — لسه مفيش رأس مال مبدئي مسجل') + '</p>' +
+      '<label class="field">رأس المال المبدئي (كاش)<input id="bs-start" type="number" inputmode="decimal" min="0" step="any" value="' + (start ? esc(start.amount) : '') + '"></label>' +
+      '<button id="bs-start-save" class="btn primary" type="button">احفظ</button>' +
+      '<h3>تنبيه المخزن</h3>' +
+      '<label class="field">نبهني لما رصيد أي صنف يوصل لـ (أو أقل)<input id="bs-low" type="number" inputmode="decimal" min="0" step="any" value="' + esc(BK.low) + '"></label>' +
+      '<button id="bs-low-save" class="btn primary" type="button">احفظ</button></div>';
+    $('bs-start-save').addEventListener('click', function () {
+      var v = Number($('bs-start').value);
+      if (!(v >= 0) || $('bs-start').value === '') { toast('اكتب رقم صح'); return; }
+      sb.from('books_cash').delete().eq('kind', 'capital_start').then(function (d) {
+        if (d.error) throw d.error;
+        return sb.from('books_cash').insert({ kind: 'capital_start', amount: v, move_date: todayStr(), note: 'رأس المال المبدئي' });
+      }).then(function (r) { if (r.error) throw r.error; toast('اتحفظ'); bkRender(); }).catch(function () { toast('مشكلة في الحفظ'); });
+    });
+    $('bs-low-save').addEventListener('click', function () {
+      var v = Number($('bs-low').value);
+      if (!(v >= 0)) { toast('اكتب رقم صح'); return; }
+      sb.from('books_settings').update({ low_stock: v }).eq('id', 1).select('id').then(function (r) {
+        if (r.error || !r.data || !r.data.length) { toast('مشكلة في الحفظ'); return; }
+        toast('اتحفظ'); bkRender();
+      });
+    });
   }
 
   /* ---------- تشغيل ---------- */
