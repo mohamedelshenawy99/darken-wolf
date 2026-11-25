@@ -26,7 +26,7 @@
     'photo-upvc-handle-vega.jpg',
   ];
 
-  var BUILD = 'dw-v25';
+  var BUILD = 'dw-v26';
 
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
   function egp(n) { return fmt.format(n) + ' ج'; }
@@ -435,13 +435,13 @@
     if (h.indexOf('#/') !== 0 && h !== '') return; // روابط مش بتاعتنا (زي رموز الدخول)
     if (h === '#/lb') return; // اللايت بوكس اتفتح للتو
     if (!$('lightbox').hidden) closeLightbox(true);
-    if (h === '#/home') {
+    if (h === '#/home' || h === '') {
       // ده أصل السجل: رجوع وهو في الرئيسية = حذر الخروج
       applyNav({ v: 'catalog', c: 'all' });
       toast('اضغط رجوع مرة تانية للخروج');
       clearTimeout(rearmTimer);
       rearmTimer = setTimeout(function () {
-        if (state.user && currentView() === 'catalog' && state.cat === 'all' && location.hash === '#/home') {
+        if (state.user && currentView() === 'catalog' && state.cat === 'all' && (location.hash === '#/home' || location.hash === '')) {
           suppressHash = '#/';
           location.hash = '#/';
         }
@@ -1039,10 +1039,20 @@
     if (!navBooted) {
       navBooted = true;
       try {
-        history.replaceState(null, '', '#/home');
-        suppressHash = '#/';
-        location.hash = '#/';
+        if (location.hash.indexOf('#/') !== 0) {
+          suppressHash = '#/home';
+          location.hash = '#/home';
+        } else {
+          history.replaceState(null, '', '#/home');
+        }
       } catch (e) {}
+      var armGuard = function () {
+        try {
+          if (location.hash === '#/home') { suppressHash = '#/'; location.hash = '#/'; }
+        } catch (e) {}
+      };
+      if (document.readyState === 'complete') setTimeout(armGuard, 50);
+      else window.addEventListener('load', function () { setTimeout(armGuard, 50); });
     }
     loadTexts();
     loadProducts();
