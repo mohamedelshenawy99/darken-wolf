@@ -240,3 +240,8 @@ main {
 #reset-wrap { display: flex; flex-direction: column; gap: 4px; width: 100%; }
 
 .build-tag { opacity: .55; font-size: 11px; margin-inline-start: 6px; }
+
+.color-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 8px; }
+.color-chip { border: 1px solid #d8d2cc; border-radius: 999px; background: #fff; padding: 3px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.color-chip.active { border-color: #c23c12; background: #fdeee6; color: #c23c12; font-weight: 700; }
+.l-color { color: #888; font-size: 12px; }

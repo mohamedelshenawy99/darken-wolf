@@ -25,7 +25,7 @@
     'photo-basket.jpg',
   ];
 
-  var BUILD = 'dw-v18';
+  var BUILD = 'dw-v19';
 
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
   function egp(n) { return fmt.format(n) + ' ج'; }
@@ -36,7 +36,7 @@
     });
   }
 
-  var state = {
+  var state = { selColor: {}, 
     user: null,
     isOwner: false,
     products: [],
@@ -240,6 +240,11 @@
   }
 
   /* ---------- المتجر ---------- */
+  function ckey(id, color) { return String(id) + '|' + (color || ''); }
+  function parseKey(key) {
+    var i = String(key).indexOf('|');
+    return { id: String(key).slice(0, i), color: String(key).slice(i + 1) || null };
+  }
   function setQty(id, qty) {
     if (qty <= 0) { delete state.cart[id]; } else { state.cart[id] = qty; }
     save('dw-cart', state.cart);
@@ -253,10 +258,11 @@
     return null;
   }
   function lines() {
-    return Object.keys(state.cart).map(function (id) {
-      var p = productById(id);
-      if (!p || !(state.cart[id] > 0)) return null;
-      return { p: p, qty: state.cart[id], total: state.cart[id] * p.price };
+    return Object.keys(state.cart).map(function (key) {
+      var k = parseKey(key);
+      var p = productById(k.id);
+      if (!p || !(state.cart[key] > 0)) return null;
+      return { p: p, qty: state.cart[key], color: k.color, total: state.cart[key] * p.price };
     }).filter(Boolean);
   }
   function catLabel(v) {
@@ -346,7 +352,12 @@
       return;
     }
     shown.forEach(function (p) {
-      var qty = state.cart[p.id] || 0;
+      var colors = (p.colors || []).filter(Boolean);
+      if (colors.length && (!state.selColor[p.id] || colors.indexOf(state.selColor[p.id]) < 0)) {
+        state.selColor[p.id] = colors[0];
+      }
+      var key = ckey(p.id, colors.length ? state.selColor[p.id] : null);
+      var qty = state.cart[key] || 0;
       var card = document.createElement('article');
       card.className = 'card';
       var imgHtml = p.img ? '<img src="' + esc(p.img) + '" alt="" loading="lazy">' : '';
@@ -355,16 +366,28 @@
         '<div class="info">' +
           '<h3>' + esc(p.name) + '</h3>' +
           '<p class="price">' + egp(p.price) + ' <span>/ ' + esc(p.unit) + '</span></p>' +
+          (colors.length ? '<div class="color-chips"></div>' : '') +
           '<div class="row"></div>' +
         '</div>';
+      if (colors.length) {
+        var chipBox = card.querySelector('.color-chips');
+        colors.forEach(function (c) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'color-chip' + (state.selColor[p.id] === c ? ' active' : '');
+          b.textContent = c;
+          b.addEventListener('click', function () { state.selColor[p.id] = c; renderGrid(); });
+          chipBox.appendChild(b);
+        });
+      }
       var row = card.querySelector('.row');
       if (qty === 0) {
         var add = document.createElement('button');
         add.type = 'button'; add.className = 'btn primary'; add.textContent = 'أضف للسلة';
-        add.addEventListener('click', function () { setQty(p.id, 1); });
+        add.addEventListener('click', function () { setQty(key, 1); });
         row.appendChild(add);
       } else {
-        row.appendChild(stepper(p.id, qty));
+        row.appendChild(stepper(key, qty));
       }
       grid.appendChild(card);
     });
@@ -394,7 +417,7 @@
       total += l.total;
       var li = document.createElement('li');
       li.innerHTML =
-        '<span class="l-name">' + esc(l.p.name) + '</span>' +
+        '<span class="l-name">' + esc(l.p.name) + (l.color ? ' <span class="l-color">(' + esc(l.color) + ')</span>' : '') + '</span>' +
         '<span class="l-qty">' + l.qty + ' × ' + egp(l.p.price) + '</span>' +
         '<strong>' + egp(l.total) + '</strong>';
       ul.appendChild(li);
@@ -420,7 +443,7 @@
       address: address,
       notes: $('f-notes').value.trim(),
       items: ls.map(function (l) {
-        return { name: l.p.name, qty: l.qty, unit: l.p.unit, price: l.p.price, total: l.total };
+        return { name: l.p.name, qty: l.qty, unit: l.p.unit, price: l.p.price, total: l.total, color: l.color || null };
       }),
       total: ls.reduce(function (s, l) { return s + l.total; }, 0)
     };
@@ -538,7 +561,7 @@
           card.className = 'order-card' + (o.status === 'done' ? ' done' : '') + (o.status === 'cancelled' ? ' cancelled' : '');
           var when = new Date(o.created_at).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' });
           var items = (o.items || []).map(function (it) {
-            return '<li>' + esc(it.name) + ' — ' + it.qty + ' ' + esc(it.unit || '') + ' × ' + egp(it.price) + '</li>';
+            return '<li>' + esc(it.name) + (it.color ? ' (' + esc(it.color) + ')' : '') + ' — ' + it.qty + ' ' + esc(it.unit || '') + ' × ' + egp(it.price) + '</li>';
           }).join('');
           card.innerHTML =
             '<div class="order-top"><strong>' + esc(o.customer_name) + '</strong>' +
@@ -626,6 +649,7 @@
     $('p-cat').value = p && p.category_id ? p.category_id : '';
     $('p-img').value = p && p.img ? p.img : '';
     $('p-stock').checked = p ? !!p.in_stock : true;
+    $('p-colors').value = p && p.colors ? p.colors.join('، ') : '';
     $('p-name').focus();
   }
   function saveProduct() {
@@ -636,7 +660,8 @@
       unit: $('p-unit').value.trim() || 'قطعة',
       category_id: $('p-cat').value || null,
       img: $('p-img').value || null,
-      in_stock: $('p-stock').checked
+      in_stock: $('p-stock').checked,
+      colors: $('p-colors').value.split(/[،,]/).map(function (s) { return s.trim(); }).filter(Boolean)
     };
     if (!data.name) { toast('اكتب اسم المنتج'); return; }
     var q = id
@@ -828,7 +853,7 @@
           card.className = 'order-card' + (o.status === 'cancelled' ? ' cancelled' : (o.status === 'done' ? ' done' : ''));
           var when = new Date(o.created_at).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' });
           var items = (o.items || []).map(function (it) {
-            return '<li>' + esc(it.name) + ' — ' + it.qty + ' ' + esc(it.unit || '') + ' × ' + egp(it.price) + '</li>';
+            return '<li>' + esc(it.name) + (it.color ? ' (' + esc(it.color) + ')' : '') + ' — ' + it.qty + ' ' + esc(it.unit || '') + ' × ' + egp(it.price) + '</li>';
           }).join('');
           card.innerHTML =
             '<div class="order-top"><strong>طلب ' + String(o.id).slice(0, 8) + '</strong>' +
