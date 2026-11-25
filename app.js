@@ -26,7 +26,7 @@
     'photo-upvc-handle-vega.jpg',
   ];
 
-  var BUILD = 'dw-v23';
+  var BUILD = 'dw-v24';
 
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
   function egp(n) { return fmt.format(n) + ' ج'; }
@@ -254,6 +254,26 @@
     renderGrid();
     renderCart();
   }
+  function updateCartBadge() {
+    var n = 0;
+    Object.keys(state.cart).forEach(function (k) { n += state.cart[k] || 0; });
+    var b = $('cart-badge');
+    if (!b) return;
+    b.textContent = n;
+    b.hidden = !n;
+  }
+  function openCart() {
+    $('order-done').hidden = true;
+    $('catalog-view').hidden = true;
+    $('orders-view').hidden = true;
+    $('wallet-view').hidden = true;
+    $('admin-view').hidden = true;
+    $('cart-view').hidden = false;
+    renderCart();
+    scrollTo(0, 0);
+    pushNav();
+  }
+  function closeCart() { history.back(); }
   function productById(id) {
     for (var i = 0; i < state.products.length; i++) {
       if (String(state.products[i].id) === String(id)) return state.products[i];
@@ -345,22 +365,40 @@
     if (!$('orders-view').hidden) return 'orders';
     if (!$('wallet-view').hidden) return 'wallet';
     if (!$('admin-view').hidden) return 'admin';
+    if (!$('cart-view').hidden) return 'cart';
     return 'catalog';
   }
+  var suppressHash = null;
+  function navHash() {
+    var v = currentView();
+    if (v === 'catalog') return state.cat && state.cat !== 'all' ? '#/c/' + encodeURIComponent(state.cat) : '#/';
+    return '#/v/' + v;
+  }
   function pushNav() {
-    try { history.pushState({ dw: 1, v: currentView(), c: state.cat }, ''); } catch (e) {}
+    var h = navHash();
+    if (location.hash === h) return;
+    suppressHash = h;
+    location.hash = h;
+  }
+  function parseHash(h) {
+    if (h === '#/' || h === '#/home' || h === '') return { v: 'catalog', c: 'all' };
+    if (h.indexOf('#/c/') === 0) return { v: 'catalog', c: decodeURIComponent(h.slice(4)) };
+    if (h.indexOf('#/v/') === 0) return { v: h.slice(4), c: null };
+    return null;
   }
   function applyNav(s) {
-    state.cat = s.c || 'all';
+    if (s.c != null) state.cat = s.c;
     var v = s.v || 'catalog';
     if (v === 'admin' && !state.isOwner) v = 'catalog';
     $('orders-view').hidden = v !== 'orders';
     $('wallet-view').hidden = v !== 'wallet';
     $('admin-view').hidden = v !== 'admin';
+    $('cart-view').hidden = v !== 'cart';
     $('catalog-view').hidden = v !== 'catalog';
     if (v === 'orders') renderMyOrders();
     if (v === 'wallet') renderWallet();
     if (v === 'admin') setAdminTab(state.adminTab || 'orders');
+    if (v === 'cart') renderCart();
     renderCatCards(); renderFilters(); renderGrid();
     scrollTo(0, 0);
   }
@@ -376,7 +414,8 @@
     $('lightbox-img').alt = name || '';
     $('lightbox').hidden = false;
     document.body.classList.add('lb-open');
-    try { history.pushState({ dw: 1, v: currentView(), c: state.cat, lb: 1 }, ''); } catch (e) {}
+    suppressHash = '#/lb';
+    location.hash = '#/lb';
   }
   function closeLightbox(fromPop) {
     if ($('lightbox').hidden) return;
@@ -385,24 +424,32 @@
     document.body.classList.remove('lb-open');
     if (!fromPop) { try { history.back(); } catch (e) {} }
   }
-  /* ---------- تأكيد الخروج بزرار الرجوع ---------- */
+  /* ---------- تنقل الرجوع (hash) + تأكيد الخروج ---------- */
   var rearmTimer = null;
-  window.addEventListener('popstate', function (e) {
-    if (!state.user) return;
-    var s = e.state;
-    if (!$('lightbox').hidden && (!s || !s.lb)) { closeLightbox(true); if (s && s.dw) applyNav(s); return; }
-    if (!s || !s.dw) { applyNav({ v: 'catalog', c: 'all' }); return; }
-    var wasHome = currentView() === 'catalog' && state.cat === 'all';
-    applyNav(s);
-    var nowHome = s.v === 'catalog' && (s.c || 'all') === 'all';
-    if (wasHome && nowHome) {
-      // رجوع وهو أصلاً في الرئيسية: حذر واسمح بالخروج لو داس تاني بسرعة
+  var navBooted = false;
+  window.addEventListener('hashchange', function () {
+    if (!state.user || DW_RECOVERY) return;
+    var h = location.hash;
+    if (h === suppressHash) { suppressHash = null; return; }
+    suppressHash = null;
+    if (h.indexOf('#/') !== 0 && h !== '') return; // روابط مش بتاعتنا (زي رموز الدخول)
+    if (h === '#/lb') return; // اللايت بوكس اتفتح للتو
+    if (!$('lightbox').hidden) closeLightbox(true);
+    if (h === '#/home') {
+      // ده أصل السجل: رجوع وهو في الرئيسية = حذر الخروج
+      applyNav({ v: 'catalog', c: 'all' });
       toast('اضغط رجوع مرة تانية للخروج');
       clearTimeout(rearmTimer);
       rearmTimer = setTimeout(function () {
-        if (state.user && currentView() === 'catalog' && state.cat === 'all') pushNav();
+        if (state.user && currentView() === 'catalog' && state.cat === 'all' && location.hash === '#/home') {
+          suppressHash = '#/';
+          location.hash = '#/';
+        }
       }, 2000);
+      return;
     }
+    var s = parseHash(h);
+    if (s) applyNav(s);
   });
   /* ---------- إشعارات حالة الطلب ---------- */
   function showNotif(msg) {
@@ -564,7 +611,9 @@
     return wrap;
   }
   function renderCart() {
+    updateCartBadge();
     var ls = lines();
+    if (!$('order-done').hidden) return;
     $('cart-empty').hidden = ls.length > 0;
     $('cart-body').hidden = ls.length === 0;
     if (!ls.length) return;
@@ -573,11 +622,33 @@
     var total = 0;
     ls.forEach(function (l) {
       total += l.total;
+      var key = ckey(l.p.id, l.color);
       var li = document.createElement('li');
+      li.className = 'line';
+      var colors = (l.p.colors || []).filter(Boolean);
+      var colorHtml = colors.length
+        ? '<select class="l-color-sel">' + colors.map(function (c) { return '<option' + (c === l.color ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select>'
+        : '';
       li.innerHTML =
-        '<span class="l-name">' + esc(l.p.name) + (l.color ? ' <span class="l-color">(' + esc(l.color) + ')</span>' : '') + '</span>' +
-        '<span class="l-qty">' + l.qty + ' × ' + egp(l.p.price) + '</span>' +
-        '<strong>' + egp(l.total) + '</strong>';
+        '<div class="line-top"><span class="l-name">' + esc(l.p.name) + '</span>' +
+        '<button type="button" class="l-del" aria-label="احذف">✕</button></div>' +
+        '<div class="line-mid">' + colorHtml + '<span class="l-unit">' + egp(l.p.price) + ' / ' + esc(l.p.unit) + '</span></div>' +
+        '<div class="line-bot"><span class="l-step"></span><strong>' + egp(l.total) + '</strong></div>';
+      li.querySelector('.l-step').appendChild(stepper(key, l.qty));
+      li.querySelector('.l-del').addEventListener('click', function () { setQty(key, 0); });
+      var sel = li.querySelector('.l-color-sel');
+      if (sel) {
+        sel.addEventListener('change', function () {
+          var newKey = ckey(l.p.id, sel.value);
+          var qty = state.cart[key] || 0;
+          delete state.cart[key];
+          state.cart[newKey] = (state.cart[newKey] || 0) + qty;
+          state.selColor[l.p.id] = sel.value;
+          save('dw-cart', state.cart);
+          renderGrid();
+          renderCart();
+        });
+      }
       ul.appendChild(li);
     });
     $('grand-total').textContent = egp(total);
@@ -658,7 +729,7 @@
         state.cart = {};
         save('dw-cart', state.cart);
         renderGrid();
-        renderCart();
+        updateCartBadge();
         var id = String(r.data.id).slice(0, 8);
         $('cart-body').hidden = true;
         $('cart-empty').hidden = true;
@@ -684,9 +755,7 @@
     pushNav();
   }
   function closeAdmin() {
-    $('admin-view').hidden = true;
-    $('catalog-view').hidden = false;
-    pushNav();
+    history.back();
     loadProducts();
   }
   function setAdminTab(tab) {
@@ -967,8 +1036,14 @@
       w.value = user.user_metadata.full_name;
     }
     showApp();
-    try { history.replaceState({ dw: 1, v: 'catalog', c: 'all' }, ''); } catch (e) {}
-    try { history.pushState({ dw: 1, v: 'catalog', c: 'all' }, ''); } catch (e) {}
+    if (!navBooted) {
+      navBooted = true;
+      try {
+        history.replaceState(null, '', '#/home');
+        suppressHash = '#/';
+        location.hash = '#/';
+      } catch (e) {}
+    }
     loadTexts();
     loadProducts();
     loadCategories();
@@ -1004,11 +1079,7 @@
     scrollTo(0, 0);
     pushNav();
   }
-  function closeMyOrders() {
-    $('orders-view').hidden = true;
-    $('catalog-view').hidden = false;
-    pushNav();
-  }
+  function closeMyOrders() { history.back(); }
   function renderMyOrders() {
     var box = $('my-orders');
     box.innerHTML = '<p class="empty">بيتم التحميل…</p>';
@@ -1067,11 +1138,7 @@
     scrollTo(0, 0);
     pushNav();
   }
-  function closeWallet() {
-    $('wallet-view').hidden = true;
-    $('catalog-view').hidden = false;
-    pushNav();
-  }
+  function closeWallet() { history.back(); }
   function renderWallet() {
     $('wallet-pay-number').textContent = paymentNumber();
     $('wallet-history').innerHTML = '<p class="empty">بيتم التحميل…</p>';
@@ -1266,6 +1333,9 @@
       b.addEventListener('click', function () { setAdminTab(b.getAttribute('data-tab')); });
     });
     $('send-order').addEventListener('click', sendOrder);
+    $('cart-open').addEventListener('click', openCart);
+    $('cart-close').addEventListener('click', closeCart);
+    $('cart-continue').addEventListener('click', closeCart);
     $('my-orders-open').addEventListener('click', openMyOrders);
     $('my-orders-close').addEventListener('click', closeMyOrders);
     $('wallet-open').addEventListener('click', openWallet);

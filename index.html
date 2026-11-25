@@ -59,6 +59,7 @@
   </div>
   <div class="user-chip">
     <span id="user-name"></span>
+    <button id="cart-open" class="btn ghost small cart-btn" type="button" aria-label="السلة">🛒<span id="cart-badge" class="cart-badge" hidden></span></button>
     <button id="wallet-open" class="btn ghost small" type="button">المحفظة</button>
     <button id="my-orders-open" class="btn ghost small" type="button">طلباتي</button>
     <button id="admin-open" class="btn ghost small" type="button" hidden>الإدارة<span id="admin-badge" class="admin-badge" hidden></span></button>
@@ -81,8 +82,15 @@
 
   <section id="grid" class="grid" aria-label="المنتجات"></section>
 
+</main>
+
+<!-- السلة -->
+<main id="cart-view" hidden>
+  <div class="admin-head">
+    <h2>السلة</h2>
+    <button id="cart-close" class="btn ghost small" type="button">رجوع للمتجر</button>
+  </div>
   <section id="cart-section" class="cart" aria-label="الفاتورة">
-    <h2>طلبك</h2>
     <div id="cart-empty" class="empty">السلة فاضية لسه. اختار منتجات من الفهرس وهتظهر هنا بأسعارها.</div>
     <div id="cart-body" hidden>
       <ul id="lines" class="lines"></ul>
@@ -119,6 +127,7 @@
       <p class="done-title">تم استلام طلبك</p>
       <p class="done-sub">رقم الطلب: <span id="order-id"></span></p>
       <p class="done-sub">هيتم التواصل معاك على رقمك لتأكيد الطلب والتسليم.</p>
+      <button id="cart-continue" class="btn primary" type="button">متابعة التسوق</button>
     </div>
   </section>
 </main>
