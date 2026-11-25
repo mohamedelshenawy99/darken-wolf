@@ -26,7 +26,7 @@
     'photo-upvc-handle-vega.jpg',
   ];
 
-  var BUILD = 'dw-v24';
+  var BUILD = 'dw-v25';
 
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
   function egp(n) { return fmt.format(n) + ' ج'; }
@@ -1328,7 +1328,7 @@
     $('admin-open').addEventListener('click', openAdmin);
     $('admin-close').addEventListener('click', closeAdmin);
     var brandEl = document.querySelector('.brand');
-    if (brandEl) brandEl.addEventListener('click', function () { if (state.user) goHome(); });
+    if (brandEl) brandEl.addEventListener('click', function (e) { if (e.target.closest('button')) return; if (state.user) goHome(); });
     document.querySelectorAll('.admin-tab').forEach(function (b) {
       b.addEventListener('click', function () { setAdminTab(b.getAttribute('data-tab')); });
     });
