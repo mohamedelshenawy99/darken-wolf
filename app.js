@@ -26,7 +26,7 @@
     'photo-upvc-handle-vega.jpg',
   ];
 
-  var BUILD = 'dw-v21';
+  var BUILD = 'dw-v22';
 
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
   function egp(n) { return fmt.format(n) + ' ج'; }
@@ -45,6 +45,8 @@
     texts: {},
     cart: load('dw-cart', {}),
     cat: 'all',
+    search: '',
+    topSellers: [],
     authMode: 'login',
     adminTab: 'orders'
   };
@@ -367,17 +369,168 @@
     applyNav({ v: 'catalog', c: 'all' });
     pushNav();
   }
+  /* ---------- تكبير صورة المنتج ---------- */
+  function openLightbox(src, name) {
+    if (!src) return;
+    $('lightbox-img').src = src;
+    $('lightbox-img').alt = name || '';
+    $('lightbox').hidden = false;
+    document.body.classList.add('lb-open');
+    try { history.pushState({ dw: 1, v: currentView(), c: state.cat, lb: 1 }, ''); } catch (e) {}
+  }
+  function closeLightbox(fromPop) {
+    if ($('lightbox').hidden) return;
+    $('lightbox').hidden = true;
+    $('lightbox-img').src = '';
+    document.body.classList.remove('lb-open');
+    if (!fromPop) { try { history.back(); } catch (e) {} }
+  }
+  /* ---------- تأكيد الخروج بزرار الرجوع ---------- */
+  var rearmTimer = null;
   window.addEventListener('popstate', function (e) {
     if (!state.user) return;
     var s = e.state;
+    if (!$('lightbox').hidden && (!s || !s.lb)) { closeLightbox(true); if (s && s.dw) applyNav(s); return; }
     if (!s || !s.dw) { applyNav({ v: 'catalog', c: 'all' }); return; }
+    var wasHome = currentView() === 'catalog' && state.cat === 'all';
     applyNav(s);
+    var nowHome = s.v === 'catalog' && (s.c || 'all') === 'all';
+    if (wasHome && nowHome) {
+      // رجوع وهو أصلاً في الرئيسية: حذر واسمح بالخروج لو داس تاني بسرعة
+      toast('اضغط رجوع مرة تانية للخروج');
+      clearTimeout(rearmTimer);
+      rearmTimer = setTimeout(function () {
+        if (state.user && currentView() === 'catalog' && state.cat === 'all') pushNav();
+      }, 2000);
+    }
   });
+  /* ---------- إشعارات حالة الطلب ---------- */
+  function showNotif(msg) {
+    var el = $('notif-bar');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'notif-bar'; el.className = 'notif-bar';
+      document.body.appendChild(el);
+    }
+    el.innerHTML = '<span></span><button type="button" class="notif-x" aria-label="اقفل">✕</button>';
+    el.querySelector('span').textContent = msg;
+    el.querySelector('.notif-x').addEventListener('click', function () { el.classList.remove('show'); });
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.classList.remove('show'); }, 9000);
+  }
+  function checkOrderNotifs(initial) {
+    if (!state.user || state.isOwner) return;
+    sb.from('orders').select('id,status').eq('user_id', state.user.id).order('created_at', { ascending: false }).limit(20)
+      .then(function (r) {
+        if (r.error || !r.data) return;
+        var map = {};
+        try { map = JSON.parse(localStorage.getItem('dw-order-status') || '{}'); } catch (e) {}
+        var changed = [];
+        r.data.forEach(function (o) {
+          if (map[o.id] && map[o.id] !== o.status) {
+            changed.push('طلب #' + String(o.id).slice(0, 8) + ': ' + statusLabel(o.status));
+          }
+          map[o.id] = o.status;
+        });
+        try { localStorage.setItem('dw-order-status', JSON.stringify(map)); } catch (e) {}
+        if (!initial && changed.length) showNotif(changed.join(' · '));
+      })
+      .catch(function () {});
+  }
+  setInterval(function () { if (state.user && !state.isOwner) checkOrderNotifs(false); }, 60000);
+  function norm(s) {
+    return String(s || '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ').trim();
+  }
+  function buildCard(p) {
+    var colors = (p.colors || []).filter(Boolean);
+    if (colors.length && (!state.selColor[p.id] || colors.indexOf(state.selColor[p.id]) < 0)) {
+      state.selColor[p.id] = colors[0];
+    }
+    var key = ckey(p.id, colors.length ? state.selColor[p.id] : null);
+    var qty = state.cart[key] || 0;
+    var card = document.createElement('article');
+    card.className = 'card';
+    var imgHtml = p.img ? '<img src="' + esc(p.img) + '" alt="" loading="lazy">' : '';
+    var priceHtml = egp(p.price) + ' <span>/ ' + esc(p.unit) + '</span>';
+    if (p.old_price && Number(p.old_price) > Number(p.price)) {
+      priceHtml = '<s class="old-price">' + egp(p.old_price) + '</s> ' + priceHtml +
+        ' <span class="offer-badge">خصم ' + Math.round((1 - p.price / p.old_price) * 100) + '%</span>';
+    }
+    card.innerHTML =
+      '<div class="thumb">' + imgHtml + '</div>' +
+      '<div class="info">' +
+        '<h3>' + esc(p.name) + '</h3>' +
+        '<p class="price">' + priceHtml + '</p>' +
+        (colors.length ? '<div class="color-chips"></div>' : '') +
+        '<div class="row"></div>' +
+      '</div>';
+    var thumbImg = card.querySelector('.thumb img');
+    if (thumbImg) {
+      thumbImg.addEventListener('click', function () { openLightbox(p.img, p.name); });
+    }
+    if (colors.length) {
+      var chipBox = card.querySelector('.color-chips');
+      colors.forEach(function (c) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'color-chip' + (state.selColor[p.id] === c ? ' active' : '');
+        b.textContent = c;
+        b.addEventListener('click', function () { state.selColor[p.id] = c; renderGrid(); });
+        chipBox.appendChild(b);
+      });
+    }
+    var row = card.querySelector('.row');
+    if (qty === 0) {
+      var add = document.createElement('button');
+      add.type = 'button'; add.className = 'btn primary'; add.textContent = 'أضف للسلة';
+      add.addEventListener('click', function () { setQty(key, 1); });
+      row.appendChild(add);
+    } else {
+      row.appendChild(stepper(key, qty));
+    }
+    return card;
+  }
+  function renderHomeSections() {
+    var atHome = state.cat === 'all' && !state.search;
+    var offers = atHome ? state.products.filter(function (p) { return p.is_offer && p.in_stock; }) : [];
+    var oSec = $('offers-sec');
+    if (oSec) {
+      oSec.hidden = !offers.length;
+      var oRow = $('offers-row');
+      oRow.innerHTML = '';
+      offers.forEach(function (p) { oRow.appendChild(buildCard(p)); });
+    }
+    var bSec = $('best-sec');
+    if (bSec) {
+      var best = [];
+      if (atHome && state.topSellers.length) {
+        state.topSellers.forEach(function (t) {
+          var p = state.products.filter(function (x) { return norm(x.name) === norm(t.name) && x.in_stock; })[0];
+          if (p && best.indexOf(p) < 0) best.push(p);
+        });
+      }
+      bSec.hidden = !best.length;
+      var bRow = $('best-row');
+      bRow.innerHTML = '';
+      best.forEach(function (p) { bRow.appendChild(buildCard(p)); });
+    }
+  }
+  function loadBest() {
+    if (!sb.rpc) return;
+    sb.rpc('top_products', { lim: 8 }).then(function (r) {
+      if (r.error || !r.data) { state.topSellers = []; }
+      else { state.topSellers = r.data; }
+      renderHomeSections();
+    }).catch(function () { state.topSellers = []; });
+  }
   function renderGrid() {
     var grid = $('grid');
     grid.innerHTML = '';
+    var q = norm(state.search);
     var shown = state.products.filter(function (p) {
       if (!p.in_stock) return false;
+      if (q) return norm(p.name).indexOf(q) >= 0;
       if (state.cat === 'all') return true;
       if (state.cat.indexOf('s:') === 0) return p.category_id === state.cat.slice(2);
       if (state.cat.indexOf('p:') === 0) {
@@ -388,50 +541,12 @@
       }
       return p.cat === state.cat;
     });
+    renderHomeSections();
     if (!shown.length) {
-      grid.innerHTML = '<p class="empty">مفيش منتجات متاحة هنا دلوقتي.</p>';
+      grid.innerHTML = q ? '<p class="empty">مفيش نتائج لـ"' + esc(state.search) + '".</p>' : '<p class="empty">مفيش منتجات متاحة هنا دلوقتي.</p>';
       return;
     }
-    shown.forEach(function (p) {
-      var colors = (p.colors || []).filter(Boolean);
-      if (colors.length && (!state.selColor[p.id] || colors.indexOf(state.selColor[p.id]) < 0)) {
-        state.selColor[p.id] = colors[0];
-      }
-      var key = ckey(p.id, colors.length ? state.selColor[p.id] : null);
-      var qty = state.cart[key] || 0;
-      var card = document.createElement('article');
-      card.className = 'card';
-      var imgHtml = p.img ? '<img src="' + esc(p.img) + '" alt="" loading="lazy">' : '';
-      card.innerHTML =
-        '<div class="thumb">' + imgHtml + '</div>' +
-        '<div class="info">' +
-          '<h3>' + esc(p.name) + '</h3>' +
-          '<p class="price">' + egp(p.price) + ' <span>/ ' + esc(p.unit) + '</span></p>' +
-          (colors.length ? '<div class="color-chips"></div>' : '') +
-          '<div class="row"></div>' +
-        '</div>';
-      if (colors.length) {
-        var chipBox = card.querySelector('.color-chips');
-        colors.forEach(function (c) {
-          var b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'color-chip' + (state.selColor[p.id] === c ? ' active' : '');
-          b.textContent = c;
-          b.addEventListener('click', function () { state.selColor[p.id] = c; renderGrid(); });
-          chipBox.appendChild(b);
-        });
-      }
-      var row = card.querySelector('.row');
-      if (qty === 0) {
-        var add = document.createElement('button');
-        add.type = 'button'; add.className = 'btn primary'; add.textContent = 'أضف للسلة';
-        add.addEventListener('click', function () { setQty(key, 1); });
-        row.appendChild(add);
-      } else {
-        row.appendChild(stepper(key, qty));
-      }
-      grid.appendChild(card);
-    });
+    shown.forEach(function (p) { grid.appendChild(buildCard(p)); });
   }
   function stepper(id, qty) {
     var wrap = document.createElement('div');
@@ -693,6 +808,8 @@
     $('p-img').value = p && p.img ? p.img : '';
     $('p-stock').checked = p ? !!p.in_stock : true;
     $('p-colors').value = p && p.colors ? p.colors.join('، ') : '';
+    $('p-offer').checked = !!(p && p.is_offer);
+    $('p-oldprice').value = p && p.old_price ? p.old_price : '';
     $('p-name').focus();
   }
   function saveProduct() {
@@ -704,7 +821,9 @@
       category_id: $('p-cat').value || null,
       img: $('p-img').value || null,
       in_stock: $('p-stock').checked,
-      colors: $('p-colors').value.split(/[،,]/).map(function (s) { return s.trim(); }).filter(Boolean)
+      colors: $('p-colors').value.split(/[،,]/).map(function (s) { return s.trim(); }).filter(Boolean),
+      is_offer: $('p-offer').checked,
+      old_price: Number($('p-oldprice').value) || null
     };
     if (!data.name) { toast('اكتب اسم المنتج'); return; }
     var q = id
@@ -847,12 +966,15 @@
     }
     showApp();
     try { history.replaceState({ dw: 1, v: 'catalog', c: 'all' }, ''); } catch (e) {}
+    try { history.pushState({ dw: 1, v: 'catalog', c: 'all' }, ''); } catch (e) {}
     loadTexts();
     loadProducts();
     loadCategories();
     renderFilters();
     renderCart();
     refreshOrderBadge();
+    loadBest();
+    checkOrderNotifs(true);
   }
   function refreshOrderBadge() {
     var badge = $('admin-badge');
@@ -1152,6 +1274,17 @@
     $('c-cancel').addEventListener('click', function () { $('cat-form').hidden = true; });
     $('product-add').addEventListener('click', function () { openProductForm(null); });
     $('p-save').addEventListener('click', saveProduct);
+    var searchEl = $('search');
+    if (searchEl) {
+      searchEl.addEventListener('input', function () {
+        state.search = searchEl.value.trim();
+        renderGrid();
+      });
+    }
+    $('lightbox-close').addEventListener('click', function () { closeLightbox(false); });
+    $('lightbox').addEventListener('click', function (e) {
+      if (e.target === this) closeLightbox(false);
+    });
     $('p-cancel').addEventListener('click', function () { $('product-form').hidden = true; });
     $('t-save').addEventListener('click', saveTexts);
     var w = $('f-workshop');

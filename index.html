@@ -71,8 +71,13 @@
   <p class="intro" id="welcome-text">اختار المنتجات والكميات، شوف الفاتورة والإجمالي، وابعت الطلب بضغطة واحدة.</p>
   <div id="demo-note" class="note" hidden></div>
 
+  <div class="search-row"><input id="search" type="search" placeholder="دوّر على منتج بالاسم…" autocomplete="off"></div>
+
   <section id="cat-cards" class="cat-cards" aria-label="الأقسام"></section>
   <nav class="filters" id="filters" aria-label="تصفية الأقسام"></nav>
+
+  <section id="offers-sec" class="home-sec" hidden><h2>عروض</h2><div id="offers-row" class="h-scroll"></div></section>
+  <section id="best-sec" class="home-sec" hidden><h2>الأكثر طلباً</h2><div id="best-row" class="h-scroll"></div></section>
 
   <section id="grid" class="grid" aria-label="المنتجات"></section>
 
@@ -228,6 +233,8 @@
         <select id="p-img"></select>
       </label>
       <label class="field">الألوان (اختياري — افصل بينها بفاصلة) <input id="p-colors" type="text" placeholder="أبيض، أسود، شامبين"></label>
+      <label class="check"><input id="p-offer" type="checkbox"> عرض (يظهر في قسم العروض)</label>
+      <label class="field">السعر قبل الخصم (اختياري) <input id="p-oldprice" type="number" min="0" step="1" placeholder="مثال: 150"></label>
       <label class="check"><input id="p-stock" type="checkbox" checked> متاح للبيع</label>
       <div class="actions">
         <button id="p-save" class="btn primary" type="button">حفظ</button>
@@ -261,6 +268,11 @@
     </div>
   </section>
 </main>
+
+<div id="lightbox" class="lightbox" hidden>
+  <button id="lightbox-close" class="lb-close" type="button" aria-label="اقفل">✕</button>
+  <img id="lightbox-img" src="" alt="">
+</div>
 
 <footer class="foot"><span id="footer-text">Darken Wolf — دمياط</span> <small id="build-tag" class="build-tag"></small></footer>
   <a id="wa-float" class="wa-float" href="https://wa.me/201066683195" target="_blank" rel="noopener" aria-label="تواصل معنا واتساب" title="تواصل معنا واتساب">
