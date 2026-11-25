@@ -23,9 +23,10 @@
     'photo-awning.jpg',
     'photo-pullout.jpg',
     'photo-basket.jpg',
+    'photo-upvc-handle-vega.jpg',
   ];
 
-  var BUILD = 'dw-v19';
+  var BUILD = 'dw-v20';
 
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
   function egp(n) { return fmt.format(n) + ' ج'; }
