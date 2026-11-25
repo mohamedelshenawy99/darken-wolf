@@ -26,7 +26,7 @@
     'photo-upvc-handle-vega.jpg',
   ];
 
-  var BUILD = 'dw-v28';
+  var BUILD = 'dw-v29';
 
   var fmt = new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 });
   function egp(n) { return fmt.format(n) + ' ج'; }
@@ -44,6 +44,7 @@
     categories: [],
     texts: {},
     cart: load('dw-cart', {}),
+    editing: {},
     cat: 'all',
     search: '',
     topSellers: [],
@@ -249,7 +250,7 @@
     return { id: String(key).slice(0, i), color: String(key).slice(i + 1) || null };
   }
   function setQty(id, qty) {
-    if (qty <= 0) { delete state.cart[id]; } else { state.cart[id] = qty; }
+    if (qty <= 0) { delete state.cart[id]; delete state.editing[id]; } else { state.cart[id] = qty; }
     save('dw-cart', state.cart);
     renderGrid();
     renderCart();
@@ -553,10 +554,27 @@
     if (qty === 0) {
       var add = document.createElement('button');
       add.type = 'button'; add.className = 'btn primary'; add.textContent = 'أضف للسلة';
-      add.addEventListener('click', function () { setQty(key, 1); });
+      add.addEventListener('click', function () { state.editing[key] = true; setQty(key, 1); });
       row.appendChild(add);
-    } else {
+    } else if (state.editing[key]) {
       row.appendChild(stepper(key, qty));
+      var ok = document.createElement('button');
+      ok.type = 'button'; ok.className = 'btn primary done-btn'; ok.textContent = 'تم';
+      ok.addEventListener('click', function () {
+        delete state.editing[key];
+        renderGrid();
+        toast('اتضاف للسلة: ' + qty + ' × ' + p.name);
+      });
+      row.appendChild(ok);
+    } else {
+      var inCart = document.createElement('div');
+      inCart.className = 'in-cart';
+      inCart.innerHTML = '<span>✓ في السلة: <b>' + qty + '</b></span>';
+      var ed = document.createElement('button');
+      ed.type = 'button'; ed.className = 'btn ghost small'; ed.textContent = 'تعديل';
+      ed.addEventListener('click', function () { state.editing[key] = true; renderGrid(); });
+      inCart.appendChild(ed);
+      row.appendChild(inCart);
     }
     return card;
   }
@@ -642,7 +660,7 @@
     var ul = $('lines');
     ul.innerHTML = '';
     var total = 0;
-    ls.forEach(function (l) {
+    ls.forEach(function (l, idx) {
       total += l.total;
       var key = ckey(l.p.id, l.color);
       var li = document.createElement('li');
@@ -652,7 +670,7 @@
         ? '<select class="l-color-sel">' + colors.map(function (c) { return '<option' + (c === l.color ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select>'
         : '';
       li.innerHTML =
-        '<div class="line-top"><span class="l-name">' + esc(l.p.name) + '</span>' +
+        '<div class="line-top"><span class="l-num">' + (idx + 1) + '</span><span class="l-name">' + esc(l.p.name) + '</span>' +
         '<button type="button" class="l-del" aria-label="احذف">✕</button></div>' +
         '<div class="line-mid">' + colorHtml + '<span class="l-unit">' + egp(l.p.price) + ' / ' + esc(l.p.unit) + '</span></div>' +
         '<div class="line-bot"><span class="l-step"></span><strong>' + egp(l.total) + '</strong></div>';
@@ -674,11 +692,49 @@
       ul.appendChild(li);
     });
     $('grand-total').textContent = egp(total);
+    var cnt = $('cart-count'); if (cnt) cnt.textContent = ls.length + ' صنف';
     var balEl = $('pay-wallet-balance');
     if (balEl && state.user) {
       fetchBalance(state.user.id).then(function (b) {
         balEl.textContent = '(رصيدك: ' + egp(b) + ')';
       });
+    }
+  }
+
+  /* ---------- بيانات العميل المحفوظة ---------- */
+  var PROF_FIELDS = { name: 'f-workshop', phone: 'f-phone', city: 'f-city', address: 'f-address', landmark: 'f-landmark' };
+  function profKey() { return 'dw-profile-' + (state.user ? state.user.id : ''); }
+  function profValid(p) { return p && p.name && /^01[0-9]{9}$/.test(String(p.phone || '')) && p.city && p.address; }
+  function readProf() {
+    var p = {};
+    Object.keys(PROF_FIELDS).forEach(function (k) { p[k] = $(PROF_FIELDS[k]).value.trim(); });
+    p.phone = p.phone.replace(/[^0-9]/g, '');
+    return p;
+  }
+  function showProfSummary() {
+    var p = readProf();
+    var ok = profValid(p) && !state.profEditing;
+    $('cust-summary').hidden = !ok;
+    $('cust-fields').hidden = ok;
+    if (ok) $('cust-text').textContent = p.name + ' · ' + p.phone + ' · ' + p.city + ' — ' + p.address + (p.landmark ? ' (' + p.landmark + ')' : '');
+  }
+  function loadProf() {
+    if (!state.user) return;
+    var p = load(profKey(), null);
+    var md = state.user.user_metadata && state.user.user_metadata.profile;
+    if (md && (!p || !profValid(p))) p = md;
+    p = p || {};
+    if (!p.name) p.name = (state.user.user_metadata && state.user.user_metadata.full_name) || load('dw-workshop', '') || '';
+    Object.keys(PROF_FIELDS).forEach(function (k) { $(PROF_FIELDS[k]).value = p[k] || ''; });
+    state.profEditing = false;
+    showProfSummary();
+  }
+  function saveProf(remote) {
+    if (!state.user) return;
+    var p = readProf();
+    save(profKey(), p);
+    if (remote && profValid(p) && sb.auth.updateUser) {
+      sb.auth.updateUser({ data: { profile: p } }).then(function () {}).catch(function () {});
     }
   }
   function orderPayload() {
@@ -750,6 +806,7 @@
         }
         state.cart = {};
         save('dw-cart', state.cart);
+        saveProf(true);
         renderGrid();
         updateCartBadge();
         var id = String(r.data.id).slice(0, 8);
@@ -1053,10 +1110,7 @@
     var name = (user.user_metadata && user.user_metadata.full_name) || user.email;
     $('user-name').textContent = name;
     $('admin-open').hidden = !state.isOwner;
-    var w = $('f-workshop');
-    if (!w.value && user.user_metadata && user.user_metadata.full_name) {
-      w.value = user.user_metadata.full_name;
-    }
+    loadProf();
     showApp();
     if (!navBooted) {
       navBooted = true;
@@ -1391,9 +1445,10 @@
     });
     $('p-cancel').addEventListener('click', function () { $('product-form').hidden = true; });
     $('t-save').addEventListener('click', saveTexts);
-    var w = $('f-workshop');
-    w.addEventListener('input', function () { save('dw-workshop', w.value); });
-    w.value = load('dw-workshop', '');
+    Object.keys(PROF_FIELDS).forEach(function (k) {
+      $(PROF_FIELDS[k]).addEventListener('input', function () { saveProf(false); });
+    });
+    $('cust-edit').addEventListener('click', function () { state.profEditing = true; showProfSummary(); });
     fillImageOptions();
   }
 

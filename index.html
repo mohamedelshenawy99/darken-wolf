@@ -94,7 +94,9 @@
     <div id="cart-empty" class="empty">السلة فاضية لسه. اختار منتجات من الفهرس وهتظهر هنا بأسعارها.</div>
     <div id="cart-body" hidden>
       <ul id="lines" class="lines"></ul>
-      <div class="grand"><span>الإجمالي</span><strong id="grand-total"></strong></div>
+      <div class="grand"><span>الإجمالي <small id="cart-count"></small></span><strong id="grand-total"></strong></div>
+      <div id="cust-summary" class="cust-summary" hidden><div><strong>بيانات التوصيل</strong><p id="cust-text"></p></div><button id="cust-edit" class="btn ghost small" type="button">تعديل</button></div>
+      <div id="cust-fields">
       <label class="field">الاسم / اسم الورشة
         <input id="f-workshop" type="text" autocomplete="organization">
       </label>
@@ -110,6 +112,7 @@
       <label class="field">علامة مميزة (اختياري)
         <input id="f-landmark" type="text" autocomplete="off" placeholder="مثال: جنب مسجد...">
       </label>
+      </div>
       <label class="field">ملاحظات (اختياري)
         <textarea id="f-notes" rows="2"></textarea>
       </label>
