@@ -620,9 +620,9 @@
           if (btn) {
             btn.addEventListener('click', function () {
               if (!confirm('متأكد إنك عايز تلغي الطلب ده؟')) return;
-              sb.from('orders').update({ status: 'cancelled' }).eq('id', o.id).eq('status', 'new')
+              sb.from('orders').update({ status: 'cancelled' }).eq('id', o.id).eq('status', 'new').select('id')
                 .then(function (u) {
-                  if (u.error) { toast('مشكلة في الإلغاء. جرّب تاني.'); return; }
+                  if (u.error || !u.data || !u.data.length) { toast('مشكلة في الإلغاء. جرّب تاني.'); renderMyOrders(); return; }
                   if (o.pay_method === 'wallet') {
                     sb.from('wallet_ledger').insert({
                       kind: 'refund', status: 'applied', amount: Number(o.total) || 0,
